@@ -1,2 +1,18 @@
 .agent-logs/
 .ralph/
+
+# NestJS build & dependencies
+node_modules/
+dist/
+.nest/
+coverage/
+
+# env files
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
