@@ -222,10 +222,14 @@ done
 mkdir -p "$RALPH_DIR" "$LOG_DIR/iterations"
 
 # Trava para não rodar duas instâncias do loop no mesmo repo ao mesmo tempo
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  die "Já existe um ralph-loop.sh rodando neste repositório (lock: $LOCK_FILE)."
+if [[ -f "$LOCK_FILE" ]]; then
+  old_pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+  if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+    die "Já existe um ralph-loop.sh rodando neste repositório (lock PID: $old_pid)."
+  fi
 fi
+echo "$$" > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
 
 if [[ -f "$STOP_FILE" ]]; then
   log "Arquivo de stop já existe ($STOP_FILE). Removendo antes de começar (rode 'touch $STOP_FILE' durante o loop pra parar, não antes)."
