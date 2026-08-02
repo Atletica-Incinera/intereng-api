@@ -1,0 +1,482 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 .AppleSystemUIFontMonospaced-Regular;}
+{\colortbl;\red255\green255\blue255;\red246\green246\blue244;\red33\green33\blue31;}
+{\*\expandedcolortbl;;\cssrgb\c97255\c97255\c96471;\cssrgb\c17255\c17255\c16471;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww29200\viewh15820\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs24 \cf2 \cb3 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // ============================================================================\
+// SCHEMA \'97 Sistema de Gest\'e3o de Competi\'e7\'f5es Esportivas Multi-Evento\
+// PostgreSQL 15+ / Prisma\
+// ============================================================================\
+\
+generator client \{\
+  provider = "prisma-client-js"\
+\}\
+\
+datasource db \{\
+  provider = "postgresql"\
+  url      = env("DATABASE_URL")\
+\}\
+\
+// ============================================================================\
+// ENUMS\
+// ============================================================================\
+\
+enum EditionStatus \{\
+  PLANNING\
+  ONGOING\
+  FINISHED\
+  ARCHIVED\
+\}\
+\
+enum TournamentFormat \{\
+  SINGLE_ELIMINATION\
+  GROUP_KNOCKOUT\
+  LEAGUE_KNOCKOUT\
+  LEAGUE_ONLY\
+  LEAGUE_LIMITED_KNOCKOUT\
+\}\
+\
+enum TournamentStatus \{\
+  DRAFT\
+  SCHEDULED\
+  ONGOING\
+  FINISHED\
+  CANCELLED\
+\}\
+\
+enum PhaseType \{\
+  GROUP\
+  LEAGUE\
+  KNOCKOUT\
+\}\
+\
+enum MatchStatus \{\
+  SCHEDULED\
+  LIVE\
+  FINISHED\
+  WALKOVER\
+  CANCELLED\
+  POSTPONED\
+\}\
+\
+enum RosterStatus \{\
+  ACTIVE\
+  INJURED\
+  SUSPENDED\
+  WITHDRAWN\
+\}\
+\
+enum EditionStaffRoleType \{\
+  EDITION_ADMIN\
+  DISCIPLINE_MANAGER\
+  REFEREE\
+  SCOREKEEPER\
+  VOLUNTEER\
+\}\
+\
+enum EventType \{\
+  GOAL\
+  ASSIST\
+  YELLOW_CARD\
+  RED_CARD\
+  POINT\
+  SET_WON\
+  FOUL\
+  TIMEOUT_CALLED\
+  SUBSTITUTION\
+  DISQUALIFICATION\
+  CHECKMATE\
+  WALKOVER_DECLARED\
+  OTHER\
+\}\
+\
+// ============================================================================\
+// GLOBAIS\
+// ============================================================================\
+\
+model Competition \{\
+  id        String   @id @default(cuid())\
+  name      String\
+  slug      String   @unique\
+  createdAt DateTime @default(now())\
+  updatedAt DateTime @updatedAt\
+\
+  editions CompetitionEdition[]\
+\
+  @@map("competitions")\
+\}\
+\
+model CompetitionEdition \{\
+  id            String        @id @default(cuid())\
+  competitionId String\
+  competition   Competition   @relation(fields: [competitionId], references: [id], onDelete: Restrict)\
+\
+  year      Int\
+  name      String\
+  startDate DateTime @db.Timestamptz(3) // [CORRE\'c7\'c3O 9] Timezone expl\'edcito\
+  endDate   DateTime @db.Timestamptz(3) // [CORRE\'c7\'c3O 9] Timezone expl\'edcito\
+  status    EditionStatus @default(PLANNING)\
+\
+  createdAt DateTime @default(now())\
+  updatedAt DateTime @updatedAt\
+\
+  disciplines EditionDiscipline[]\
+  staffRoles  EditionStaffRole[]\
+  auditLogs   AuditLog[]\
+\
+  @@unique([competitionId, year])\
+  @@index([competitionId, status])\
+  @@index([status, startDate])\
+  @@map("competition_editions")\
+\}\
+\
+model Discipline \{\
+  id           String  @id @default(cuid())\
+  name         String\
+  slug         String  @unique\
+  isIndividual Boolean @default(false)\
+  description  String?\
+\
+  createdAt DateTime @default(now())\
+\
+  editionLinks EditionDiscipline[]\
+\
+  @@map("disciplines")\
+\}\
+\
+model Team \{\
+  id        String   @id @default(cuid())\
+  name      String\
+  slug      String   @unique\
+  createdAt DateTime @default(now())\
+\
+  rosters EditionRoster[]\
+  entries TournamentEntry[]\
+\
+  @@map("teams")\
+\}\
+\
+model Athlete \{\
+  id        String    @id @default(cuid())\
+  name      String\
+  document  String    @unique\
+  birthDate DateTime? @db.Date // [CORRE\'c7\'c3O 10] Apenas Data\
+  email     String?\
+  createdAt DateTime  @default(now())\
+\
+  rosters       EditionRoster[]\
+  entries       TournamentEntry[]\
+  matchEvents   MatchEvent[]\
+\
+  @@index([name])\
+  @@map("athletes")\
+\}\
+\
+model Staff \{\
+  id           String   @id @default(cuid())\
+  name         String\
+  email        String   @unique\
+  passwordHash String\
+  isSuperAdmin Boolean  @default(false)\
+  createdAt    DateTime @default(now())\
+\
+  editionRoles EditionStaffRole[]\
+  auditLogs    AuditLog[]\
+\
+  @@map("staff")\
+\}\
+\
+// ============================================================================\
+// ASSOCIA\'c7\'c3O GLOBAL <-> EDI\'c7\'c3O\
+// ============================================================================\
+\
+model EditionDiscipline \{\
+  id           String   @id @default(cuid())\
+  editionId    String\
+  edition      CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)\
+  disciplineId String\
+  discipline   Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)\
+\
+  config Json?\
+\
+  createdAt DateTime @default(now())\
+\
+  rosters     EditionRoster[]\
+  staffRoles  EditionStaffRole[]\
+  tournaments Tournament[]\
+\
+  @@unique([editionId, disciplineId])\
+  // [CORRE\'c7\'c3O 7] \'cdndice redundante (editionId) removido\
+  @@map("edition_disciplines")\
+\}\
+\
+model EditionRoster \{\
+  id                  String   @id @default(cuid())\
+  // [CORRE\'c7\'c3O 1] Ref apontando diretamente para EditionDiscipline\
+  editionDisciplineId String\
+  editionDiscipline   EditionDiscipline @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)\
+  athleteId           String\
+  athlete             Athlete  @relation(fields: [athleteId], references: [id], onDelete: Restrict)\
+  teamId              String? \
+  team                Team?    @relation(fields: [teamId], references: [id], onDelete: Restrict) // [CORRE\'c7\'c3O 5] Restrict ao inv\'e9s de SetNull\
+\
+  jerseyNumber Int?\
+  status       RosterStatus @default(ACTIVE)\
+\
+  createdAt DateTime @default(now())\
+  updatedAt DateTime @updatedAt\
+\
+  @@unique([editionDisciplineId, athleteId])\
+  // [CORRE\'c7\'c3O 7] \'cdndices redundantes removidos\
+  @@index([teamId])\
+  @@index([athleteId])\
+  @@map("edition_rosters")\
+\}\
+\
+model EditionStaffRole \{\
+  id                  String   @id @default(cuid())\
+  editionId           String\
+  edition             CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)\
+  staffId             String\
+  staff               Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)\
+  \
+  // [CORRE\'c7\'c3O 1 e 4] Ref apontando diretamente para EditionDiscipline e com onDelete: Restrict\
+  editionDisciplineId String? \
+  editionDiscipline   EditionDiscipline? @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)\
+\
+  role EditionStaffRoleType\
+\
+  createdAt DateTime @default(now())\
+\
+  @@unique([editionId, staffId, editionDisciplineId, role])\
+  // [CORRE\'c7\'c3O 7] \'cdndice redundante removido\
+  @@map("edition_staff_roles")\
+\}\
+\
+// ============================================================================\
+// ESTRUTURA DE COMPETI\'c7\'c3O\
+// ============================================================================\
+\
+model Tournament \{\
+  id                  String   @id @default(cuid())\
+  // [CORRE\'c7\'c3O 1] Ref apontando diretamente para EditionDiscipline (editionId e disciplineId separados removidos)\
+  editionDisciplineId String\
+  editionDiscipline   EditionDiscipline @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)\
+\
+  name   String\
+  format TournamentFormat\
+  status TournamentStatus @default(DRAFT)\
+\
+  createdAt DateTime @default(now())\
+  updatedAt DateTime @updatedAt\
+\
+  phases  Phase[]\
+  entries TournamentEntry[]\
+\
+  @@unique([editionDisciplineId, name])\
+  @@index([editionDisciplineId, status])\
+  @@map("tournaments")\
+\}\
+\
+model TournamentEntry \{\
+  id           String   @id @default(cuid())\
+  tournamentId String\
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)\
+  teamId       String?\
+  team         Team?    @relation(fields: [teamId], references: [id], onDelete: Restrict) // [CORRE\'c7\'c3O 3] Restrict ao inv\'e9s de Cascade\
+  athleteId    String?\
+  athlete      Athlete? @relation(fields: [athleteId], references: [id], onDelete: Restrict) // [CORRE\'c7\'c3O 3] Restrict ao inv\'e9s de Cascade\
+\
+  seed Int?\
+\
+  createdAt DateTime @default(now())\
+\
+  groupEntries      GroupEntry[]\
+  standings         PhaseStanding[]\
+  matchesAsEntryA   Match[]         @relation("MatchEntryA")\
+  matchesAsEntryB   Match[]         @relation("MatchEntryB")\
+  matchesWon        Match[]         @relation("MatchWinner")\
+  matchEvents       MatchEvent[]\
+\
+  @@unique([tournamentId, teamId])\
+  @@unique([tournamentId, athleteId])\
+  @@index([tournamentId])\
+  @@index([teamId])    // [CORRE\'c7\'c3O 8] \'cdndice para queries via time\
+  @@index([athleteId]) // [CORRE\'c7\'c3O 8] \'cdndice para queries via atleta\
+  // NOTA SQL: ALTER TABLE tournament_entries ADD CONSTRAINT entry_exactly_one CHECK (num_nonnulls(team_id, athlete_id) = 1);\
+  @@map("tournament_entries")\
+\}\
+\
+model Phase \{\
+  id           String   @id @default(cuid())\
+  tournamentId String\
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)\
+\
+  order Int \
+  name  String \
+  type  PhaseType\
+\
+  config Json?\
+\
+  createdAt DateTime @default(now())\
+\
+  groups    Group[]\
+  matches   Match[]\
+  standings PhaseStanding[]\
+\
+  @@unique([tournamentId, order])\
+  @@index([tournamentId])\
+  @@map("phases")\
+\}\
+\
+model Group \{\
+  id      String @id @default(cuid())\
+  phaseId String\
+  phase   Phase  @relation(fields: [phaseId], references: [id], onDelete: Cascade)\
+\
+  name String\
+\
+  createdAt DateTime @default(now())\
+\
+  entries GroupEntry[]\
+  matches Match[]\
+\
+  @@unique([phaseId, name])\
+  @@index([phaseId])\
+  @@map("groups")\
+\}\
+\
+model GroupEntry \{\
+  id      String @id @default(cuid())\
+  groupId String\
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)\
+  entryId String\
+  entry   TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)\
+\
+  @@unique([groupId, entryId])\
+  // [CORRE\'c7\'c3O 7] \'cdndice redundante (groupId) removido\
+  @@map("group_entries")\
+\}\
+\
+model Match \{\
+  id      String  @id @default(cuid())\
+  phaseId String\
+  phase   Phase   @relation(fields: [phaseId], references: [id], onDelete: Cascade)\
+  groupId String?\
+  group   Group?  @relation(fields: [groupId], references: [id], onDelete: SetNull)\
+\
+  round       Int? \
+  bracketSlot Int? \
+\
+  entryAId String?\
+  entryA   TournamentEntry? @relation("MatchEntryA", fields: [entryAId], references: [id], onDelete: SetNull)\
+  entryBId String? \
+  entryB   TournamentEntry? @relation("MatchEntryB", fields: [entryBId], references: [id], onDelete: SetNull)\
+\
+  winnerEntryId String?\
+  winnerEntry   TournamentEntry? @relation("MatchWinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)\
+\
+  scoreA Int @default(0)\
+  scoreB Int @default(0)\
+\
+  lastEventSequence Int @default(0)\
+\
+  status      MatchStatus @default(SCHEDULED)\
+  scheduledAt DateTime? @db.Timestamptz(3) // [CORRE\'c7\'c3O 9] Timezone expl\'edcito\
+  venue       String?\
+\
+  createdAt DateTime @default(now())\
+  updatedAt DateTime @updatedAt\
+\
+  events MatchEvent[]\
+\
+  @@index([status, scheduledAt])\
+  @@index([phaseId, round])\
+  @@index([groupId])\
+  @@index([entryAId])      // [CORRE\'c7\'c3O 8]\
+  @@index([entryBId])      // [CORRE\'c7\'c3O 8]\
+  @@index([winnerEntryId]) // [CORRE\'c7\'c3O 8]\
+  // [CORRE\'c7\'d5ES 2 E 6 - NOTAS SQL]\
+  // ALTER TABLE matches ADD CONSTRAINT winner_is_participant CHECK (winner_entry_id IS NULL OR winner_entry_id IN (entry_a_id, entry_b_id));\
+  // ADD TRIGGER PARA MANTER scoreA, scoreB e lastEventSequence SINCRONIZADOS COM match_events.\
+  @@map("matches")\
+\}\
+\
+model MatchEvent \{\
+  id      String @id @default(cuid())\
+  matchId String\
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)\
+\
+  entryId String? \
+  entry   TournamentEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)\
+\
+  athleteId String? \
+  athlete   Athlete? @relation(fields: [athleteId], references: [id], onDelete: SetNull)\
+\
+  type      EventType\
+  metadata  Json?\
+\
+  sequence Int\
+\
+  occurredAt DateTime @default(now()) @db.Timestamptz(3) // [CORRE\'c7\'c3O 9] Timezone expl\'edcito\
+\
+  createdAt DateTime @default(now())\
+\
+  @@unique([matchId, sequence])\
+  @@index([athleteId])\
+  @@index([entryId]) // [CORRE\'c7\'c3O 8] \'cdndice para queries via Entry no evento\
+  @@map("match_events")\
+\}\
+\
+model PhaseStanding \{\
+  id      String @id @default(cuid())\
+  phaseId String\
+  phase   Phase  @relation(fields: [phaseId], references: [id], onDelete: Cascade)\
+  entryId String\
+  entry   TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)\
+\
+  played       Int @default(0)\
+  won          Int @default(0)\
+  drawn        Int @default(0)\
+  lost         Int @default(0)\
+  scoreFor     Int @default(0)\
+  scoreAgainst Int @default(0)\
+  points       Int @default(0)\
+  rank         Int? \
+\
+  updatedAt DateTime @updatedAt\
+\
+  @@unique([phaseId, entryId])\
+  @@index([phaseId, points(sort: Desc), scoreFor(sort: Desc)])\
+  @@map("phase_standings")\
+\}\
+\
+// ============================================================================\
+// AUDITORIA\
+// ============================================================================\
+\
+model AuditLog \{\
+  id        String   @id @default(cuid())\
+  editionId String?\
+  edition   CompetitionEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)\
+  staffId   String?\
+  staff     Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)\
+\
+  action     String // [NOTA 11] Validar chaves e tipos de a\'e7\'e3o em n\'edvel de aplica\'e7\'e3o\
+  entityType String \
+  entityId   String\
+\
+  beforeData Json?\
+  afterData  Json?\
+\
+  createdAt DateTime @default(now())\
+\
+  @@index([editionId, createdAt])\
+  @@index([entityType, entityId])\
+  @@index([staffId]) // [CORRE\'c7\'c3O 8] Facilita varredura de a\'e7\'f5es de um staff espec\'edfico\
+  @@map("audit_logs")\
+\}}
