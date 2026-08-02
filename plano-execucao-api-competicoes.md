@@ -212,13 +212,14 @@ Implementação: decorator `@RequireRole(EditionStaffRoleType.DISCIPLINE_MANAGER
 
 ### TASK-04-EXEC — Teams & Athletes
 
-**Como implementar**: idêntico padrão CRUD de catálogo global. `GET /teams?search=`/`GET /athletes?search=` — usar `ILIKE` simples. `document` é `@unique` em `Athlete` — 409 automático via F02.
+**Como implementar**: idêntico padrão CRUD de catálogo global. `GET /teams?search=`/`GET /athletes?search=` — usar `ILIKE` simples.
+* **Segurança & LGPD (CPF/RG)**: O `document` é um dado pessoal sensível (PII). Ele deve ser armazenado como um **Hash Criptográfico unidirecional** (ex: SHA-256 com *salt/pepper* da aplicação) para a validação de duplicidade no banco (`@@unique`). Para exibição em DTOs, o documento deve vir mascarado (`***.456.***-**`) e só exposto de forma completa a administradores (`EDITION_ADMIN` / `SuperAdmin`) sob criptografia simétrica reversível (AES-256), nunca exposto em texto plano a outros papéis como `DISCIPLINE_MANAGER`.
 
-**Autonomia de pesquisa**: se `document` (CPF) deveria ser mascarado na resposta para papéis sem privilégio total (ex.: `123.***.**9-00`).
+**Autonomia de pesquisa**: Algoritmo de mascaramento e criptografia simétrica para proteção de PII de atletas em conformidade com a LGPD.
 
-**Decisões que exigem validação humana**: se `document` deve ser mascarado.
+**Decisões que exigem validação humana**: se o mascaramento nos DTOs de listagem de atletas é obrigatório para todos os escopos não-admin.
 
-**Critério de aceite verificável**: `POST /athletes` duplicando `document` retorna 409; `GET /athletes/:id/history` monta o shape achatado corretamente.
+**Critério de aceite verificável**: `POST /athletes` duplicando `document` (mesmo hash gerado) retorna 409; requisição `GET /athletes` retorna o documento mascarado para usuários com perfil `DISCIPLINE_MANAGER`.
 
 ---
 
@@ -278,35 +279,48 @@ Implementação: decorator `@RequireRole(EditionStaffRoleType.DISCIPLINE_MANAGER
 
 ### TASK-11-EXEC — Match Events
 
-**Como implementar**: **transação obrigatória** cobrindo: (1) criar `MatchEvent` com `sequence = Match.lastEventSequence + 1`, (2) incrementar `Match.lastEventSequence`, (3) atualizar `scoreA`/`scoreB` se aplicável. Utilizar `SELECT ... FOR UPDATE` no `Match` para evitar conflito concorrente de sequência. Emite `match.event.created`.
+**Como implementar**: **transação obrigatória na aplicação (sem Triggers no Banco)**.
+* **Aviso de Concorrência**: Não utilize triggers de banco (como mencionado em notas no schema) para evitar conflitos de bloqueio com as queries enviadas pelo NestJS. Toda a lógica de sincronização de scores e contadores deve residir no NestJS.
+* **Lock Pessimista**: Realize um `SELECT ... FOR UPDATE` (através de query raw ou métodos equivalentes do Prisma para lock de linha) na linha correspondente do `Match` antes de ler o `lastEventSequence`.
+* **Fluxo da Transação**:
+  1. Executar lock pessimista na linha do `Match`.
+  2. Inserir o `MatchEvent` com `sequence = Match.lastEventSequence + 1`.
+  3. Incrementar `Match.lastEventSequence` e atualizar `scoreA`/`scoreB` dependendo do `type` do evento.
+  4. Commitar a transação.
+  5. Emitir o evento de domínio `match.event.created` no barramento (F06) **após** o commit.
 
-**Autonomia de pesquisa**: estratégia de lock/concorrência para o incremento de `lastEventSequence`.
+**Autonomia de pesquisa**: sintaxe correta e performance de Raw SQL para `SELECT FOR UPDATE` usando o cliente Prisma no PostgreSQL.
 
-**Critério de aceite verificável**: dois `POST` simultâneos resultam em `sequence` 1 e 2 sem colisão; `DELETE` de evento reverte placar recalculando a partir dos remanescentes.
+**Critério de aceite verificável**: teste de concorrência disparando dois `POST` simultâneos de evento para a mesma partida resulta em `sequence` 1 e 2 ordenadas e atualizadas com sucesso (sem colisão P2002); `DELETE` de evento recalcula e reverte o score do `Match` baseado na soma dos eventos válidos remanescentes.
 
 ---
 
 ### TASK-12-EXEC — Real-time (SSE)
 
-**Como implementar**: listener de `match.event.created` faz `XADD` no Redis Stream `stream:match:{matchId}`. Controller SSE lê `Last-Event-ID` e faz `XRANGE` antes de entrar em `XREAD BLOCK`. Heartbeat a cada ~25s.
+**Como implementar**: listener de `match.event.created` faz `XADD` no Redis Stream `stream:match:{matchId}`. Controller SSE lê `Last-Event-ID` e faz `XRANGE` antes de entrar em `XREAD BLOCK`.
+* **Configuração de Proxy & HTTP/2**: Como navegadores limitam HTTP/1.1 a 6 conexões por domínio, a aplicação deve rodar sob **HTTP/2** para multiplexar conexões. No proxy reverso (Nginx/Traefik), adicione cabeçalhos para desativar o buffering (`proxy_buffering off;`, `X-Accel-Buffering: no`) para evitar retenção de pacotes.
+* **Prevenção de Memory Leaks**: Limpe intervalos (`clearInterval` do heartbeat) e conexões de escuta do Redis ao fechar o stream (evento `close` da request).
+* **Heartbeat**: Enviar ping `: ping\n\n` a cada 25s.
 
-**Autonomia de pesquisa**: comportamento de SSE atrás de proxy em produção; limite de conexões simultâneas.
+**Autonomia de pesquisa**: configuração detalhada do Nginx para rotas `/stream` e gerenciamento de concorrência de sockets no Node.js com HTTP/2.
 
-**Decisões que exigem validação humana**: TTL de expiração dos Redis Streams por partida.
+**Decisões que exigem validação humana**: TTL de retenção dos Redis Streams após o término do torneio/partida.
 
-**Critério de aceite verificável**: cliente conectando com `Last-Event-ID: 5` recebe replay dos eventos 6+; heartbeat presente.
+**Critério de aceite verificável**: cliente conectando com `Last-Event-ID: 5` recebe o replay correto; a desconexão do cliente encerra imediatamente o listener do Redis no backend (verificável via logs de conexão).
 
 ---
 
 ### TASK-13-EXEC — Phase Standings
 
-**Como implementar**: listener de `match.finished` dispara recompute completo da fase. Agregar `played/won/drawn/lost/scoreFor/scoreAgainst/points` por `entryId`, ordenar por `Phase.config.tiebreakers` (comparator chain).
+**Como implementar**: listener de `match.finished` dispara recompute completo da fase.
+* **Algoritmo de Desempate (Comparator Chain)**: Implementar uma cadeia de comparadores independentes baseada em funções puras (`comparePoints`, `compareGoalDiff`, `compareHeadToHead`). Se a primeira função retornar `0` (empate), o motor chama a próxima função de desempate dinamicamente com base no array `Phase.config.tiebreakers`.
+* Confrontos diretos (`headToHead`) devem ser avaliados apenas sobre os dados das equipes atualmente empatadas no critério anterior.
 
-**Autonomia de pesquisa**: comparator chain genérico para tiebreakers configuráveis.
+**Autonomia de pesquisa**: implementação limpa e funcional de uma cadeia encadeada de comparadores em TypeScript sem acoplamento.
 
-**Decisões que exigem validação humana**: comportamento quando `headToHead` também empata.
+**Decisões que exigem validação humana**: comportamento de desempate final se todos os critérios do array de tiebreakers empatarem (ex: sorteio ou manter mesmo rank).
 
-**Critério de aceite verificável**: fixture de 4 entries com pontos empatados ordena corretamente pelo confronto direto.
+**Critério de aceite verificável**: fixture com 4 times empatados em pontos simula ordenação e resolve corretamente através do confronto direto em primeiro lugar, e goal diff em segundo.
 
 ---
 
@@ -320,13 +334,15 @@ Implementação: decorator `@RequireRole(EditionStaffRoleType.DISCIPLINE_MANAGER
 
 ### TASK-15-EXEC — Rotas públicas agregadas (spectator)
 
-**Como implementar**: sem autenticação. Cache dinâmico via Redis. `GET /editions/:editionId/live` (cache de 30s invalidado por evento); `GET /tournaments/:id/bracket` (cache maior invalidado por finalização de partida).
+**Como implementar**: sem autenticação.
+* **Cache Stampede (Efeito Manada)**: Como estas rotas são altamente concorridas durante o evento, a invalidação do cache sob picos de acesso pode derrubar o banco de dados. Implemente uma estratégia de **Single Flight** (onde apenas uma requisição consulta o banco para preencher o cache, e as outras aguardam o resultado) ou **Stale-While-Revalidate** para servir o cache antigo por alguns milissegundos enquanto atualiza o novo em background.
+* Cache dinâmico via Redis com TTL curto para `/live` e TTL maior para `/bracket`.
 
-**Autonomia de pesquisa**: estratégia de invalidação de cache (TTL puro vs. evento).
+**Autonomia de pesquisa**: lib de controle de cache concorrente (ex: cache-manager ou padrão Single Flight implementado manualmente).
 
-**Decisões que exigem validação humana**: TTL exato de cada endpoint.
+**Decisões que exigem validação humana**: TTL padrão aceitável do cache para o público geral (spectators).
 
-**Critério de aceite verificável**: respostas repetidas retornam do cache dentro do TTL; bracket monta corretamente caso `entryB: null` com winner (bye).
+**Critério de aceite verificável**: 100 requisições simultâneas disparadas contra `/live` resultam em apenas 1 chamada de query de banco (pode ser validado com logs de consulta do Prisma), e as demais 99 leem diretamente do Redis.
 
 ---
 
