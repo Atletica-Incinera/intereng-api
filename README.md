@@ -1,98 +1,119 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Sistema de Gestão de Competições Esportivas Multi-Evento
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Este é o repositório da API do sistema de competições dos Jogos Universitários. O projeto é construído em **NestJS**, utilizando **Prisma (PostgreSQL)** como ORM, **Redis** para caching/streams, e **Server-Sent Events (SSE)** para transmissão de eventos em tempo real.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## 1. Visão Geral para Desenvolvedores
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Este projeto é desenvolvido seguindo o princípio **spec-driven** e utiliza agentes autônomos de IA integrados para acelerar a entrega de tarefas. 
 
-## Project setup
+*   **Público-Alvo do Backend:** Staff Administradores (autenticados via Bearer JWT com permissões de escopo) e Espectadores Públicos (sem autenticação, com endpoints de alta concorrência).
+*   **Convenção de Módulos:** Organização **por domínio** (dentro de `src/`), não por camada técnica. A autorização é escopada por edição ou modalidade, logo a coesão de domínio no mesmo módulo facilita o isolamento de escopo.
+*   **Convenção de Nomenclatura:** `*.controller.ts`, `*.service.ts`, `*.module.ts` e DTOs em `dto/*.dto.ts` internos de cada módulo. Os testes unitários/integração (`*.spec.ts`) devem ficar na mesma pasta do arquivo testado.
 
-```bash
-$ npm install
+---
+
+## 2. Diretrizes Arquiteturais Mandatórias (Staff Backend Guidelines)
+
+Para manter a consistência e a performance da plataforma em produção, todos os desenvolvedores (de qualquer nível) devem seguir estas regras:
+
+### 2.1. Concorrência e Transações (Match Events)
+*   **Sem Triggers de Banco:** Toda a lógica de negócio de pontuação e incremento de sequência dos eventos (`lastEventSequence`) deve rodar **na aplicação (NestJS)**. Não crie triggers em nível de banco de dados para evitar deadlocks nas transações do ORM.
+*   **Lock Pessimista:** Na criação de eventos de partida, é mandatório fazer um `SELECT ... FOR UPDATE` (via Prisma raw queries ou hooks equivalentes de lock) na linha do `Match` antes de computar o próximo incremento de sequência, serializando as requisições concorrentes.
+
+### 2.2. Proteção de Dados (LGPD)
+*   **Dados Pessoais de Atletas:** O campo `document` (CPF/RG) do `Athlete` é PII (*Personally Identifiable Information*). 
+    *   **Não armazene em texto plano.** Sempre gere e armazene um **Hash Criptográfico unidirecional (SHA-256 + salt/pepper)** para validações de duplicidade no banco (`@@unique`).
+    *   Para exibição, trafegue o documento **mascarado** (ex: `***.456.***-**`) nos DTOs padrão. A exibição integral deve ser restrita a administradores reais sob criptografia simétrica (AES-256).
+
+### 2.3. SSE (Server-Sent Events) e Infraestrutura
+*   **Uso de HTTP/2:** Devido à limitação de HTTP/1.1 de abrir no máximo 6 conexões persistentes por domínio no navegador, a aplicação de produção **deve rodar sob HTTP/2** para permitir multiplexação de streams.
+*   **Configuração de Buffering:** No proxy reverso (Nginx/Traefik), o buffering deve ser desabilitado explicitamente para as rotas `/stream` (`proxy_buffering off;` e header `X-Accel-Buffering: no`), permitindo vazão imediata dos eventos.
+*   **Prevenção de Vazamento de Memória:** Ao fechar a conexão SSE (evento `close`), limpe ativamente o `setInterval` do heartbeat e as conexões de escuta/subscrição do Redis.
+
+### 2.4. Cache e Prevenção de Cache Stampede
+*   Os endpoints públicos de alta concorrência (`/live`, `/bracket`) utilizam Redis.
+*   **Efeito Manada:** Para evitar que o banco sofra picos de carga quando o cache for invalidado em tempo real, utilize a abordagem de **Single Flight** (onde apenas uma requisição faz a query no banco para re-popular o cache, enquanto outras concorrentes aguardam a conclusão) ou **Stale-While-Revalidate**.
+
+### 2.5. Desempate de Classificações (Standings)
+*   O recálculo de classificação de fases (`PhaseStanding`) é executado de forma **completa e não-incremental** na finalização de cada partida.
+*   A implementação de critérios de tiebreaker dinâmicos (`Phase.config.tiebreakers`) deve seguir o padrão **Comparator Chain** (encadeamento de comparadores puros, avaliando confronto direto (`headToHead`) apenas entre as equipes atualmente empatadas no critério anterior).
+
+---
+
+## 3. Fluxo de Desenvolvimento Automatizado (Ralph Loop & Quality Gate)
+
+Para acelerar o desenvolvimento de forma limpa, utilizamos um pipeline de orquestração local com agentes de IA.
+
+```
+                  ┌──────────────────────┐
+                  │ ./orchestrate.sh ID  │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │  Engineer (Local)    │◄──────┐
+                  │    ralph-loop.sh     │       │
+                  └──────────┬───────────┘       │
+                             │ (passa build/test)│
+                             ▼                   │ (rejeição +
+                  ┌──────────────────────┐       │  RALPH_FEEDBACK)
+                  │  Reviewer QA Agent   ├───────┘
+                  │  (SOLID/DRY/Docs)    │
+                  └──────────┬───────────┘
+                             │
+                             ▼ (STATUS: APROVADO)
+                       [Commit Final]
 ```
 
-## Compile and run the project
+### 3.1. Como rodar uma task do plano:
+1. Garanta que você está em uma branch de feature limpa (ex: `git checkout -b ralph/TASK-F02`).
+2. Localize a próxima tarefa no checklist de progresso em [`tasks.md`](file:///Users/joaovictor/Documents/Intereng/tasks.md) e o escopo de execução em [`plano-execucao-api-competicoes.md`](file:///Users/joaovictor/Documents/Intereng/plano-execucao-api-competicoes.md).
+3. Execute o orquestrador:
+   ```bash
+   ./orchestrate.sh <TASK_ID> [MAX_CYCLES]
+   # Exemplo: ./orchestrate.sh TASK-F02 3
+   ```
+4. **O que o orquestrador fará:**
+   * O **Engineer** implementa a lógica e roda localmente testes/build. Ao passar, faz um commit local.
+   * O **Reviewer (Quality Gate)** lê o `git diff` e valida os critérios de qualidade (SOLID, DRY, Docstrings).
+   * Se o Reviewer **APROVAR**, o commit é aceito e o ciclo encerra.
+   * Se o Reviewer **REJEITAR**, o orquestrador dá um *soft reset* no commit, injeta o feedback na variável `RALPH_FEEDBACK` e aciona o Engineer novamente para correção rápida.
 
-```bash
-# development
-$ npm run start
+---
 
-# watch mode
-$ npm run start:dev
+## 4. Setup do Ambiente de Desenvolvimento
 
-# production mode
-$ npm run start:prod
-```
+### Requisitos:
+* Node.js v20+
+* Docker & Docker Compose (para PostgreSQL e Redis de teste)
+* CLI `agy` (ou `gemini` configurada) para automação de IA
 
-## Run tests
+### Passos Iniciais:
+1. Instale as dependências:
+   ```bash
+   npm install
+   ```
+2. Inicialize o ambiente local com os bancos de dados:
+   ```bash
+   docker-compose up -d
+   ```
+3. Configure as variáveis de ambiente no arquivo `.env`:
+   ```env
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/competitions?schema=public"
+   REDIS_URL="redis://localhost:6379"
+   ```
+4. Aplique as migrações do Prisma:
+   ```bash
+   npx prisma migrate dev
+   ```
+5. Inicie o servidor em modo de desenvolvimento:
+   ```bash
+   npm run start:dev
+   ```
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+### Comandos de Teste e Qualidade:
+* **Executar Testes:** `npm test`
+* **Linter:** `npm run lint`
+* **Build de Produção:** `npm run build`
