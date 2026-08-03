@@ -1,6 +1,7 @@
-import { Controller, Get, NotFoundException } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Prisma } from '@prisma/client';
+import { PaginationQueryDto } from './common/dto/pagination-query.dto';
 
 @Controller()
 export class AppController {
@@ -9,6 +10,11 @@ export class AppController {
   @Get()
   getHello(): string {
     return this.appService.getHello();
+  }
+
+  @Get('test-pagination')
+  testPagination(@Query() query: PaginationQueryDto) {
+    return query;
   }
 
   @Get('health')

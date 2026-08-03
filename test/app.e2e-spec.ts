@@ -31,6 +31,70 @@ describe('AppController (e2e)', () => {
       .expect({ data: { status: 'ok' } });
   });
 
+  it('/api/v1/test-pagination (GET) - valid pagination params conversion', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/test-pagination?page=2&pageSize=10')
+      .expect(200)
+      .expect({
+        data: {
+          page: 2,
+          pageSize: 10,
+        },
+      });
+  });
+
+  it('/api/v1/test-pagination (GET) - default values when parameters are omitted', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/test-pagination')
+      .expect(200)
+      .expect({
+        data: {
+          page: 1,
+          pageSize: 20,
+        },
+      });
+  });
+
+  it('/api/v1/test-pagination (GET) - validation error for page less than 1', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/test-pagination?page=0')
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toEqual({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Erro de validação nos campos enviados.',
+            details: [
+              {
+                field: 'page',
+                issue: 'page must not be less than 1',
+              },
+            ],
+          },
+        });
+      });
+  });
+
+  it('/api/v1/test-pagination (GET) - validation error for pageSize greater than 100', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/test-pagination?pageSize=150')
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toEqual({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Erro de validação nos campos enviados.',
+            details: [
+              {
+                field: 'pageSize',
+                issue: 'pageSize must not be greater than 100',
+              },
+            ],
+          },
+        });
+      });
+  });
+
   it('/api/v1/test-not-found (GET)', () => {
     return request(app.getHttpServer())
       .get('/api/v1/test-not-found')
