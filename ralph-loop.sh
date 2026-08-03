@@ -373,7 +373,7 @@ while (( iteration < MAX_ITERATIONS )); do
     log "Nenhuma mudança detectada nesta iteração."
   fi
 
-  if grep -q '<promise>COMPLETE</promise>' "$iter_log" 2>/dev/null; then
+  if grep -qE '<promise>COMPLETE</promise>|\\u003cpromise\\u003eCOMPLETE\\u003c/promise\\u003e' "$iter_log" 2>/dev/null; then
     log "Agente sinalizou COMPLETE."
     touch "$STOP_FILE"
   fi
