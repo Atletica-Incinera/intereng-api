@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
+import { Logger } from 'nestjs-pino';
 
 interface NestErrorResponse {
   message?: string | string[];
@@ -36,6 +37,8 @@ const EXCEPTION_CODE_MAP = new Map<ExceptionClass, string>([
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
+  constructor(private readonly logger: Logger) {}
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -156,6 +159,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
+    }
+
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(exception);
+    } else {
+      this.logger.warn(
+        {
+          statusCode: status,
+          errorCode: code,
+          message,
+        },
+        `HTTP Exception ${status} - ${message}`,
+      );
     }
 
     response.status(status).json({

@@ -165,6 +165,30 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('/api/v1/test-request-context (GET) - generates and returns x-request-id header and body', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/test-request-context')
+      .expect(200)
+      .expect((res) => {
+        const body = res.body as { data?: { requestId?: string } };
+        expect(res.headers['x-request-id']).toBeDefined();
+        expect(body.data?.requestId).toBe(res.headers['x-request-id']);
+      });
+  });
+
+  it('/api/v1/test-request-context (GET) - propagates custom x-request-id header from request to response', () => {
+    const customId = 'my-custom-request-id-12345';
+    return request(app.getHttpServer())
+      .get('/api/v1/test-request-context')
+      .set('x-request-id', customId)
+      .expect(200)
+      .expect((res) => {
+        const body = res.body as { data?: { requestId?: string } };
+        expect(res.headers['x-request-id']).toBe(customId);
+        expect(body.data?.requestId).toBe(customId);
+      });
+  });
+
   afterEach(async () => {
     await app.close();
   });

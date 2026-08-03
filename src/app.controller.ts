@@ -2,10 +2,19 @@ import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Prisma } from '@prisma/client';
 import { PaginationQueryDto } from './common/dto/pagination-query.dto';
+import { RequestContextService } from './common/request-context/request-context.service';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(
+    private readonly appService: AppService,
+    private readonly requestContextService: RequestContextService,
+  ) {}
+
+  @Get('test-request-context')
+  testRequestContext() {
+    return { requestId: this.requestContextService.getRequestId() };
+  }
 
   @Get()
   getHello(): string {

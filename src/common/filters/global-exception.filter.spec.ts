@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
+import { Logger } from 'nestjs-pino';
 import { GlobalExceptionFilter } from './global-exception.filter';
 
 // Exceção customizada herdada de HttpException para testar prototype chain resolution
@@ -21,6 +22,7 @@ describe('GlobalExceptionFilter', () => {
   let mockArgumentsHost: ArgumentsHost;
   let mockResponse: Partial<Response>;
   let responseStatus: number;
+  let mockLogger: Partial<Logger>;
   interface ExpectedErrorResponse {
     error: {
       code: string;
@@ -31,7 +33,14 @@ describe('GlobalExceptionFilter', () => {
   let responseBody: ExpectedErrorResponse | null;
 
   beforeEach(() => {
-    filter = new GlobalExceptionFilter();
+    mockLogger = {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+    };
+
+    filter = new GlobalExceptionFilter(mockLogger as Logger);
     responseStatus = 0;
     responseBody = null;
 
