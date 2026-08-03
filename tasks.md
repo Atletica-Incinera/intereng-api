@@ -6,7 +6,7 @@
 
 ## Lote 0 — Fundação
 - [x] TASK-F01 — Estrutura de módulos e convenções
-- [ ] TASK-F02 — Envelope de resposta e filtro global de erro
+- [x] TASK-F02 — Envelope de resposta e filtro global de erro
 - [ ] TASK-F04 — Logging estruturado (Pino)
 - [ ] TASK-F05 — Módulo Redis compartilhado
 - [ ] TASK-F09 — Migration corrigindo EditionStaffRoleType + Guard de autorização
