@@ -65,6 +65,41 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('/test-prisma-not-found (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/test-prisma-not-found')
+      .expect(404)
+      .expect((res) => {
+        expect(res.body).toEqual({
+          error: {
+            code: 'NOT_FOUND',
+            message: 'O registro solicitado não foi encontrado.',
+          },
+        });
+      });
+  });
+
+  it('/test-prisma-fk (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/test-prisma-fk')
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toEqual({
+          error: {
+            code: 'CONFLICT',
+            message:
+              'Erro de integridade referencial. Um registro relacionado obrigatório não foi encontrado ou existe uma dependência ativa.',
+            details: [
+              {
+                field: 'competitionId',
+                issue: 'foreign key constraint failed',
+              },
+            ],
+          },
+        });
+      });
+  });
+
   afterEach(async () => {
     await app.close();
   });

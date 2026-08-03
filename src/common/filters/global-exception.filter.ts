@@ -131,6 +131,24 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             }));
           }
         }
+      } else if (exception.code === 'P2025') {
+        status = HttpStatus.NOT_FOUND;
+        code = 'NOT_FOUND';
+        message = 'O registro solicitado não foi encontrado.';
+      } else if (exception.code === 'P2003') {
+        status = HttpStatus.CONFLICT;
+        code = 'CONFLICT';
+        message =
+          'Erro de integridade referencial. Um registro relacionado obrigatório não foi encontrado ou existe uma dependência ativa.';
+        const meta = exception.meta;
+        if (meta && typeof meta === 'object' && 'field_name' in meta) {
+          details = [
+            {
+              field: String(meta.field_name),
+              issue: 'foreign key constraint failed',
+            },
+          ];
+        }
       } else {
         status = HttpStatus.BAD_REQUEST;
         code = 'BAD_REQUEST';

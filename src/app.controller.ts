@@ -32,4 +32,27 @@ export class AppController {
       },
     );
   }
+
+  @Get('test-prisma-not-found')
+  testPrismaNotFound() {
+    throw new Prisma.PrismaClientKnownRequestError(
+      'An operation failed because it depends on one or more records that were required but not found.',
+      {
+        code: 'P2025',
+        clientVersion: '5.22.0',
+      },
+    );
+  }
+
+  @Get('test-prisma-fk')
+  testPrismaFk() {
+    throw new Prisma.PrismaClientKnownRequestError(
+      'Foreign key constraint failed on the database.',
+      {
+        code: 'P2003',
+        clientVersion: '5.22.0',
+        meta: { field_name: 'competitionId' },
+      },
+    );
+  }
 }
