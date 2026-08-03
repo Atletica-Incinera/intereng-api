@@ -15,7 +15,8 @@ import { randomUUID } from 'crypto';
  *
  * Once resolved, the function synchronizes the `x-request-id` header to both the incoming request
  * headers (so downstream middleware/services can read it) and the outgoing response headers (so clients
- * receive the tracing ID).
+ * receive the tracing ID). This ensures full traceability and correlation across HTTP boundaries,
+ * matching logs produced by Pino and tracking context stored via AsyncLocalStorage.
  *
  * @param req - The incoming HTTP request.
  * @param res - The outgoing HTTP response.
