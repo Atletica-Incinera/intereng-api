@@ -21,7 +21,14 @@ describe('GlobalExceptionFilter', () => {
   let mockArgumentsHost: ArgumentsHost;
   let mockResponse: Partial<Response>;
   let responseStatus: number;
-  let responseBody: any;
+  interface ExpectedErrorResponse {
+    error: {
+      code: string;
+      message: string;
+      details?: unknown[];
+    };
+  }
+  let responseBody: ExpectedErrorResponse | null;
 
   beforeEach(() => {
     filter = new GlobalExceptionFilter();
@@ -33,11 +40,11 @@ describe('GlobalExceptionFilter', () => {
         responseStatus = status;
         return mockResponse;
       }),
-      json: jest.fn().mockImplementation((body: any) => {
-        responseBody = body;
+      json: jest.fn().mockImplementation((body: unknown) => {
+        responseBody = body as ExpectedErrorResponse;
         return mockResponse;
       }),
-    } as unknown as Response;
+    };
 
     mockArgumentsHost = {
       switchToHttp: jest.fn().mockReturnValue({
@@ -66,7 +73,10 @@ describe('GlobalExceptionFilter', () => {
 
   it('should resolve code using prototype chain for custom exception classes', () => {
     // CustomHttpException herda de HttpException, mas não está mapeado diretamente no map
-    const exception = new CustomHttpException('Custom Forbidden', HttpStatus.FORBIDDEN);
+    const exception = new CustomHttpException(
+      'Custom Forbidden',
+      HttpStatus.FORBIDDEN,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -98,7 +108,10 @@ describe('GlobalExceptionFilter', () => {
 
   it('should fall back to status codes in switch mapping when exception code is not in map', () => {
     // HttpException genérico com status 401
-    const exception = new HttpException('Access Denied', HttpStatus.UNAUTHORIZED);
+    const exception = new HttpException(
+      'Access Denied',
+      HttpStatus.UNAUTHORIZED,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -107,7 +120,10 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should handle HttpException with string payload response', () => {
-    const exception = new HttpException('Plain string error message', HttpStatus.BAD_REQUEST);
+    const exception = new HttpException(
+      'Plain string error message',
+      HttpStatus.BAD_REQUEST,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -121,7 +137,10 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should handle HttpException with object response that lacks a message property', () => {
-    const exception = new HttpException({ details: ['some info'] }, HttpStatus.BAD_REQUEST);
+    const exception = new HttpException(
+      { details: ['some info'] },
+      HttpStatus.BAD_REQUEST,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -136,7 +155,10 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should fallback to status-based code mapping when status is NOT_FOUND', () => {
-    const exception = new HttpException('Plain not found', HttpStatus.NOT_FOUND);
+    const exception = new HttpException(
+      'Plain not found',
+      HttpStatus.NOT_FOUND,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -154,7 +176,10 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should fallback to exception message when resContent is boolean or other primitive types', () => {
-    const exception = new HttpException(true as any, HttpStatus.BAD_REQUEST);
+    const exception = new HttpException(
+      true as unknown as Record<string, any>,
+      HttpStatus.BAD_REQUEST,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -163,7 +188,10 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should handle generic status codes in fallback switch', () => {
-    const exception = new HttpException('Service Unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+    const exception = new HttpException(
+      'Service Unavailable',
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -188,9 +216,7 @@ describe('GlobalExceptionFilter', () => {
       error: {
         code: 'CONFLICT',
         message: 'Conflito de dados. Um registro com esses dados já existe.',
-        details: [
-          { field: 'email', issue: 'must be unique' },
-        ],
+        details: [{ field: 'email', issue: 'must be unique' }],
       },
     });
   });
@@ -253,7 +279,9 @@ describe('GlobalExceptionFilter', () => {
 
     expect(responseStatus).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     expect(responseBody.error.code).toBe('INTERNAL_ERROR');
-    expect(responseBody.error.message).toBe('Erro na operação do banco de dados.');
+    expect(responseBody.error.message).toBe(
+      'Erro na operação do banco de dados.',
+    );
   });
 
   it('should map standard Error to 500 INTERNAL_ERROR', () => {
