@@ -26,8 +26,7 @@ export function getOrCreateRequestId(
   req: IncomingMessage & { id?: unknown },
   res: ServerResponse,
 ): string {
-  const headerId =
-    req.headers['x-request-id'] || req.headers['x-correlation-id'];
+  const headerId = req.headers['x-request-id'] || req.headers['x-correlation-id'];
   const requestId =
     (typeof req.id === 'string' ? req.id : undefined) ||
     (typeof headerId === 'string' ? headerId : undefined) ||

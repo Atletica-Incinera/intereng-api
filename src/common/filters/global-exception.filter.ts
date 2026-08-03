@@ -90,10 +90,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
 
       if (isNestErrorResponse(resContent)) {
-        if (
-          status === HttpStatus.BAD_REQUEST &&
-          Array.isArray(resContent.message)
-        ) {
+        if (status === HttpStatus.BAD_REQUEST && Array.isArray(resContent.message)) {
           details = resContent.message.map((msg: unknown) => {
             const msgStr = String(msg);
             const firstWord = msgStr.split(' ')[0];

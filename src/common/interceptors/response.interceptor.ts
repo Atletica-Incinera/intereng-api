@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -18,14 +13,8 @@ function isObject(val: unknown): val is Record<string, unknown> {
 }
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<
-  T,
-  ResponseEnvelope<T>
-> {
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<ResponseEnvelope<T>> {
+export class ResponseInterceptor<T> implements NestInterceptor<T, ResponseEnvelope<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<ResponseEnvelope<T>> {
     const http = context.switchToHttp();
     const response = http.getResponse<Response>();
 
@@ -33,8 +22,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<
       map((val: unknown): ResponseEnvelope<T> => {
         // Ignora envelopamento se for SSE (Server-Sent Events) ou se os headers já foram enviados
         const contentTypeHeader = response.getHeader?.('content-type');
-        const contentType =
-          typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
+        const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
         if (contentType.includes('text/event-stream')) {
           return val as ResponseEnvelope<T>;
         }

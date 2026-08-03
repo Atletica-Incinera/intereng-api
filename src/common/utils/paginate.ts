@@ -51,9 +51,7 @@ export async function paginate<T>(
 ): Promise<PaginatedResult<T>> {
   const page = options.page !== undefined ? Math.max(1, options.page) : 1;
   const pageSize =
-    options.pageSize !== undefined
-      ? Math.max(1, Math.min(100, options.pageSize))
-      : 20;
+    options.pageSize !== undefined ? Math.max(1, Math.min(100, options.pageSize)) : 20;
 
   const skip = (page - 1) * pageSize;
   const take = pageSize;
@@ -72,14 +70,9 @@ export async function paginate<T>(
     ...prismaQueryOptions,
   };
 
-  const countArgs = prismaQueryOptions.where
-    ? { where: prismaQueryOptions.where }
-    : {};
+  const countArgs = prismaQueryOptions.where ? { where: prismaQueryOptions.where } : {};
 
-  const [items, total] = await Promise.all([
-    model.findMany(findManyArgs),
-    model.count(countArgs),
-  ]);
+  const [items, total] = await Promise.all([model.findMany(findManyArgs), model.count(countArgs)]);
 
   const totalPages = Math.ceil(total / pageSize);
 

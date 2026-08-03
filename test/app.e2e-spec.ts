@@ -18,10 +18,7 @@ describe('AppController (e2e)', () => {
   });
 
   it('/api/v1 (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/api/v1')
-      .expect(200)
-      .expect({ data: 'Hello World!' });
+    return request(app.getHttpServer()).get('/api/v1').expect(200).expect({ data: 'Hello World!' });
   });
 
   it('/api/v1/health (GET)', () => {
@@ -117,8 +114,7 @@ describe('AppController (e2e)', () => {
         expect(res.body).toEqual({
           error: {
             code: 'CONFLICT',
-            message:
-              'Conflito de dados. Um registro com esses dados já existe.',
+            message: 'Conflito de dados. Um registro com esses dados já existe.',
             details: [
               {
                 field: 'email',

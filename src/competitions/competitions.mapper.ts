@@ -8,9 +8,7 @@ import { CompetitionResponseDto } from './dto/competition-response.dto';
  * @param competition The database Competition entity.
  * @returns The mapped CompetitionResponseDto.
  */
-export function toCompetitionResponseDto(
-  competition: Competition,
-): CompetitionResponseDto {
+export function toCompetitionResponseDto(competition: Competition): CompetitionResponseDto {
   return {
     id: competition.id,
     name: competition.name,

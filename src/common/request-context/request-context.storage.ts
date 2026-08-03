@@ -21,5 +21,4 @@ export interface RequestContextStore {
  * Global instance of AsyncLocalStorage used to maintain request context
  * across asynchronous execution boundaries.
  */
-export const requestContextStorage =
-  new AsyncLocalStorage<RequestContextStore>();
+export const requestContextStorage = new AsyncLocalStorage<RequestContextStore>();
