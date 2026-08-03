@@ -4,6 +4,12 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  BadRequestException,
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
+  ConflictException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
@@ -16,6 +22,17 @@ interface NestErrorResponse {
 function isNestErrorResponse(val: unknown): val is NestErrorResponse {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
 }
+
+type ExceptionClass = new (...args: any[]) => Error;
+
+const EXCEPTION_CODE_MAP = new Map<ExceptionClass, string>([
+  [BadRequestException, 'VALIDATION_ERROR'],
+  [UnauthorizedException, 'UNAUTHORIZED'],
+  [ForbiddenException, 'FORBIDDEN'],
+  [NotFoundException, 'NOT_FOUND'],
+  [ConflictException, 'CONFLICT'],
+  [InternalServerErrorException, 'INTERNAL_ERROR'],
+]);
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -32,24 +49,41 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = exception.getStatus();
       const resContent: unknown = exception.getResponse();
 
-      switch (status) {
-        case HttpStatus.BAD_REQUEST:
-          code = 'VALIDATION_ERROR';
-          break;
-        case HttpStatus.UNAUTHORIZED:
-          code = 'UNAUTHORIZED';
-          break;
-        case HttpStatus.FORBIDDEN:
-          code = 'FORBIDDEN';
-          break;
-        case HttpStatus.NOT_FOUND:
-          code = 'NOT_FOUND';
-          break;
-        case HttpStatus.CONFLICT:
-          code = 'CONFLICT';
-          break;
-        default:
-          code = 'INTERNAL_ERROR';
+      let exceptionCode: string | undefined;
+      let currentClass: unknown = exception.constructor;
+      while (currentClass && currentClass !== Object) {
+        if (typeof currentClass === 'function') {
+          const targetClass = currentClass as ExceptionClass;
+          if (EXCEPTION_CODE_MAP.has(targetClass)) {
+            exceptionCode = EXCEPTION_CODE_MAP.get(targetClass);
+            break;
+          }
+        }
+        currentClass = Object.getPrototypeOf(currentClass) as unknown;
+      }
+
+      if (exceptionCode) {
+        code = exceptionCode;
+      } else {
+        switch (status) {
+          case HttpStatus.BAD_REQUEST:
+            code = 'VALIDATION_ERROR';
+            break;
+          case HttpStatus.UNAUTHORIZED:
+            code = 'UNAUTHORIZED';
+            break;
+          case HttpStatus.FORBIDDEN:
+            code = 'FORBIDDEN';
+            break;
+          case HttpStatus.NOT_FOUND:
+            code = 'NOT_FOUND';
+            break;
+          case HttpStatus.CONFLICT:
+            code = 'CONFLICT';
+            break;
+          default:
+            code = 'INTERNAL_ERROR';
+        }
       }
 
       if (isNestErrorResponse(resContent)) {
