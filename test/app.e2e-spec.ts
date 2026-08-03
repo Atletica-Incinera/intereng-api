@@ -13,26 +13,27 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/api/v1 (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/api/v1')
       .expect(200)
       .expect({ data: 'Hello World!' });
   });
 
-  it('/health (GET)', () => {
+  it('/api/v1/health (GET)', () => {
     return request(app.getHttpServer())
-      .get('/health')
+      .get('/api/v1/health')
       .expect(200)
       .expect({ data: { status: 'ok' } });
   });
 
-  it('/test-not-found (GET)', () => {
+  it('/api/v1/test-not-found (GET)', () => {
     return request(app.getHttpServer())
-      .get('/test-not-found')
+      .get('/api/v1/test-not-found')
       .expect(404)
       .expect((res) => {
         expect(res.body).toEqual({
@@ -44,9 +45,9 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/test-prisma-unique (GET)', () => {
+  it('/api/v1/test-prisma-unique (GET)', () => {
     return request(app.getHttpServer())
-      .get('/test-prisma-unique')
+      .get('/api/v1/test-prisma-unique')
       .expect(409)
       .expect((res) => {
         expect(res.body).toEqual({
@@ -65,9 +66,9 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/test-prisma-not-found (GET)', () => {
+  it('/api/v1/test-prisma-not-found (GET)', () => {
     return request(app.getHttpServer())
-      .get('/test-prisma-not-found')
+      .get('/api/v1/test-prisma-not-found')
       .expect(404)
       .expect((res) => {
         expect(res.body).toEqual({
@@ -79,9 +80,9 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/test-prisma-fk (GET)', () => {
+  it('/api/v1/test-prisma-fk (GET)', () => {
     return request(app.getHttpServer())
-      .get('/test-prisma-fk')
+      .get('/api/v1/test-prisma-fk')
       .expect(409)
       .expect((res) => {
         expect(res.body).toEqual({

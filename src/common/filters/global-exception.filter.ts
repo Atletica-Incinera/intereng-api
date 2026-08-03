@@ -150,9 +150,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ];
         }
       } else {
-        status = HttpStatus.BAD_REQUEST;
-        code = 'BAD_REQUEST';
-        message = exception.message || 'Erro na operação do banco de dados.';
+        status = HttpStatus.INTERNAL_SERVER_ERROR;
+        code = 'INTERNAL_ERROR';
+        message = 'Erro na operação do banco de dados.';
       }
     } else if (exception instanceof Error) {
       message = exception.message;
