@@ -22,11 +22,17 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestContextModule } from './common/request-context/request-context.module';
 import { pinoLoggerConfig } from './common/logger/logger.config';
+import { RedisModule } from './common/redis/redis.module';
 
 @Module({
   imports: [
     RequestContextModule,
     LoggerModule.forRoot(pinoLoggerConfig),
+    RedisModule.forRootAsync({
+      useFactory: () => ({
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+      }),
+    }),
 
     AuthModule,
     CompetitionsModule,

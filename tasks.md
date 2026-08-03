@@ -9,7 +9,7 @@
 - [x] TASK-F02 — Envelope de resposta e filtro global de erro
 - [x] TASK-F03 — Base de DTOs, paginação, mapeamento Prisma -> DTO
 - [x] TASK-F04 — Logging estruturado (Pino)
-- [ ] TASK-F05 — Módulo Redis compartilhado
+- [x] TASK-F05 — Módulo Redis compartilhado
 - [ ] TASK-F09 — Migration corrigindo EditionStaffRoleType + Guard de autorização
 - [ ] TASK-F06 — Barramento de eventos de domínio (EventEmitter2)
 - [ ] TASK-F07 — Validação de JSON dinâmico (config/metadata)
