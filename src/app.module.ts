@@ -24,9 +24,11 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { RequestContextModule } from './common/request-context/request-context.module';
 import { pinoLoggerConfig } from './common/logger/logger.config';
 import { RedisModule } from './common/redis/redis.module';
+import { PrismaModule } from './common/prisma/prisma.module';
 
 @Module({
   imports: [
+    PrismaModule,
     RequestContextModule,
     EventEmitterModule.forRoot({ wildcard: true }),
     LoggerModule.forRoot(pinoLoggerConfig),
