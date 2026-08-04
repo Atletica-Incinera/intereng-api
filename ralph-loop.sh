@@ -248,7 +248,8 @@ build_prompt() {
   if [[ -n "$TASK_FILTER" ]]; then
     prompt="${prompt}
 
-FOCO OBRIGATÓRIO DESTA ITERAÇÃO: trabalhe exclusivamente em ${TASK_FILTER}, ignore a ordem padrão de tasks.md se ela mandar outra coisa."
+FOCO OBRIGATÓRIO DESTA ITERAÇÃO: trabalhe exclusivamente em ${TASK_FILTER}, ignore a ordem padrão de tasks.md se ela mandar outra coisa.
+Se a task ${TASK_FILTER} já estiver concluída e validada (ou for concluída nesta iteração), você DEVE criar o arquivo .ralph/stop e escrever <promise>COMPLETE</promise> na sua resposta final para que o loop termine imediatamente."
   fi
 
   if [[ -n "${RALPH_FEEDBACK:-}" ]]; then
