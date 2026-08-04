@@ -13,7 +13,7 @@
 - [x] TASK-F06 — Barramento de eventos de domínio (EventEmitter2)
 - [x] TASK-F07 — Validação de JSON dinâmico (config/metadata)
 - [x] TASK-F08 — Serviço de auditoria (AuditLog)
-- [ ] TASK-F09 — Migration corrigindo EditionStaffRoleType + Guard de autorização
+- [x] TASK-F09 — Migration corrigindo EditionStaffRoleType + Guard de autorização
 - [ ] TASK-F10 — Factories de teste
 
 ## Lote 1

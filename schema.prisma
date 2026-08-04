@@ -64,9 +64,6 @@ enum RosterStatus {
 enum EditionStaffRoleType {
   EDITION_ADMIN
   DISCIPLINE_MANAGER
-  REFEREE
-  SCOREKEEPER
-  VOLUNTEER
 }
 
 enum EventType {
