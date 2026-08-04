@@ -1,6 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -27,6 +28,7 @@ import { RedisModule } from './common/redis/redis.module';
 @Module({
   imports: [
     RequestContextModule,
+    EventEmitterModule.forRoot({ wildcard: true }),
     LoggerModule.forRoot(pinoLoggerConfig),
     RedisModule.forRootAsync({
       useFactory: () => ({
