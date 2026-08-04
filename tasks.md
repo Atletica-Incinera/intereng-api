@@ -11,7 +11,7 @@
 - [x] TASK-F04 — Logging estruturado (Pino)
 - [x] TASK-F05 — Módulo Redis compartilhado
 - [x] TASK-F06 — Barramento de eventos de domínio (EventEmitter2)
-- [ ] TASK-F07 — Validação de JSON dinâmico (config/metadata)
+- [x] TASK-F07 — Validação de JSON dinâmico (config/metadata)
 - [ ] TASK-F08 — Serviço de auditoria (AuditLog)
 - [ ] TASK-F09 — Migration corrigindo EditionStaffRoleType + Guard de autorização
 - [ ] TASK-F10 — Factories de teste
