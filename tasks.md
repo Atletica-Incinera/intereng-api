@@ -17,7 +17,7 @@
 - [x] TASK-F10 — Factories de teste
 
 ## Lote 1
-- [ ] TASK-01 — Autenticação de Staff
+- [x] TASK-01 — Autenticação de Staff
 
 ## Lote 2 (paralelizável entre agentes diferentes, não entre iterações deste loop)
 - [ ] TASK-02 — Competitions & Editions
