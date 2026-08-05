@@ -20,7 +20,7 @@
 - [x] TASK-01 — Autenticação de Staff
 
 ## Lote 2 (paralelizável entre agentes diferentes, não entre iterações deste loop)
-- [ ] TASK-02 — Competitions & Editions
+- [x] TASK-02 — Competitions & Editions
 - [ ] TASK-03 — Disciplines
 - [ ] TASK-04 — Teams & Athletes
 

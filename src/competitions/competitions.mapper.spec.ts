@@ -1,5 +1,5 @@
-import { Competition } from '@prisma/client';
-import { toCompetitionResponseDto } from './competitions.mapper';
+import { Competition, CompetitionEdition, EditionStatus } from '@prisma/client';
+import { toCompetitionResponseDto, toEditionResponseDto } from './competitions.mapper';
 
 describe('CompetitionsMapper', () => {
   it('should map Competition entity to CompetitionResponseDto correctly', () => {
@@ -19,6 +19,34 @@ describe('CompetitionsMapper', () => {
       slug: 'jogos-de-engenharia',
       createdAt: rawCompetition.createdAt,
       updatedAt: rawCompetition.updatedAt,
+    });
+  });
+
+  it('should map CompetitionEdition entity to EditionResponseDto correctly', () => {
+    const rawEdition: CompetitionEdition = {
+      id: 'edition_123',
+      competitionId: 'comp_123',
+      year: 2026,
+      name: 'Jogos de Engenharia 2026',
+      startDate: new Date('2026-10-12T00:00:00Z'),
+      endDate: new Date('2026-10-19T00:00:00Z'),
+      status: EditionStatus.PLANNING,
+      createdAt: new Date('2026-08-03T12:00:00Z'),
+      updatedAt: new Date('2026-08-03T13:00:00Z'),
+    };
+
+    const mapped = toEditionResponseDto(rawEdition);
+
+    expect(mapped).toEqual({
+      id: 'edition_123',
+      competitionId: 'comp_123',
+      year: 2026,
+      name: 'Jogos de Engenharia 2026',
+      startDate: rawEdition.startDate,
+      endDate: rawEdition.endDate,
+      status: EditionStatus.PLANNING,
+      createdAt: rawEdition.createdAt,
+      updatedAt: rawEdition.updatedAt,
     });
   });
 });

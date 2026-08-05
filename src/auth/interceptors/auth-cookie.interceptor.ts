@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -26,10 +21,7 @@ export class AuthCookieInterceptor implements NestInterceptor {
     const response = http.getResponse<Response>();
     const request = http.getRequest();
 
-    const clearCookieName = this.reflector.get<string>(
-      CLEAR_COOKIE_KEY,
-      context.getHandler(),
-    );
+    const clearCookieName = this.reflector.get<string>(CLEAR_COOKIE_KEY, context.getHandler());
 
     if (clearCookieName) {
       response.clearCookie(clearCookieName);

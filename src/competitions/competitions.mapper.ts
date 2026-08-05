@@ -1,5 +1,6 @@
-import { Competition } from '@prisma/client';
+import { Competition, CompetitionEdition } from '@prisma/client';
 import { CompetitionResponseDto } from './dto/competition-response.dto';
+import { EditionResponseDto } from './dto/edition-response.dto';
 
 /**
  * Maps a Prisma Competition model to a CompetitionResponseDto.
@@ -15,5 +16,26 @@ export function toCompetitionResponseDto(competition: Competition): CompetitionR
     slug: competition.slug,
     createdAt: competition.createdAt,
     updatedAt: competition.updatedAt,
+  };
+}
+
+/**
+ * Maps a Prisma CompetitionEdition model to an EditionResponseDto.
+ * Excludes any internal or unwanted fields to prevent information leaks.
+ *
+ * @param edition The database CompetitionEdition entity.
+ * @returns The mapped EditionResponseDto.
+ */
+export function toEditionResponseDto(edition: CompetitionEdition): EditionResponseDto {
+  return {
+    id: edition.id,
+    competitionId: edition.competitionId,
+    year: edition.year,
+    name: edition.name,
+    startDate: edition.startDate,
+    endDate: edition.endDate,
+    status: edition.status,
+    createdAt: edition.createdAt,
+    updatedAt: edition.updatedAt,
   };
 }
