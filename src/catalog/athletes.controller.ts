@@ -8,25 +8,25 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
 } from '@nestjs/common';
 import { AthletesService } from './athletes.service';
 import { CreateAthleteDto } from './dto/create-athlete.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { GetCatalogQueryDto } from './dto/get-catalog-query.dto';
-import { CatalogSecurityService } from './catalog-security.service';
 import { toAthleteResponseDto } from './catalog.mapper';
+import { CanManageCatalogGuard } from './guards/can-manage-catalog.guard';
+import { AthletePIIInterceptor } from './interceptors/athlete-pii.interceptor';
 
 /**
  * Controller responsible for managing athletes in the global catalog.
  * Provides endpoints for creating, retrieving, listing, and showing participation history for athletes.
  */
 @Controller('athletes')
+@UseInterceptors(AthletePIIInterceptor)
 export class AthletesController {
-  constructor(
-    private readonly service: AthletesService,
-    private readonly security: CatalogSecurityService,
-  ) {}
+  constructor(private readonly service: AthletesService) {}
 
   /**
    * Creates a new athlete in the global catalog.
@@ -42,12 +42,11 @@ export class AthletesController {
    * @throws ConflictException if an athlete with the same document already exists.
    */
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, CanManageCatalogGuard)
   @HttpCode(HttpStatus.CREATED)
   async createAthlete(@Body() dto: CreateAthleteDto, @CurrentUser() user: AuthenticatedUser) {
     const athlete = await this.service.createAthlete(dto, user.id, user.isSuperAdmin);
-    const isAdmin = await this.security.checkIsAdmin(user.id, user.isSuperAdmin);
-    return toAthleteResponseDto(athlete, isAdmin);
+    return toAthleteResponseDto(athlete);
   }
 
   /**
@@ -60,13 +59,9 @@ export class AthletesController {
    */
   @Get()
   @UseGuards(JwtAuthGuard)
-  async findAllAthletes(
-    @Query() query: GetCatalogQueryDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
+  async findAllAthletes(@Query() query: GetCatalogQueryDto) {
     const paginated = await this.service.findAllAthletes(query, query.search);
-    const isAdmin = await this.security.checkIsAdmin(user.id, user.isSuperAdmin);
-    const items = paginated.items.map((athlete) => toAthleteResponseDto(athlete, isAdmin));
+    const items = paginated.items.map(toAthleteResponseDto);
     return {
       items,
       meta: paginated.meta,
@@ -84,10 +79,9 @@ export class AthletesController {
    */
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  async findAthleteById(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async findAthleteById(@Param('id') id: string) {
     const athlete = await this.service.findAthleteById(id);
-    const isAdmin = await this.security.checkIsAdmin(user.id, user.isSuperAdmin);
-    return toAthleteResponseDto(athlete, isAdmin);
+    return toAthleteResponseDto(athlete);
   }
 
   /**

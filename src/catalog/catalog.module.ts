@@ -5,11 +5,25 @@ import { AthletesController } from './athletes.controller';
 import { TeamsService } from './teams.service';
 import { AthletesService } from './athletes.service';
 import { CatalogSecurityService } from './catalog-security.service';
+import { CanManageCatalogGuard } from './guards/can-manage-catalog.guard';
+import { AthletePIIInterceptor } from './interceptors/athlete-pii.interceptor';
 
 @Module({
   imports: [AuthModule],
   controllers: [TeamsController, AthletesController],
-  providers: [TeamsService, AthletesService, CatalogSecurityService],
-  exports: [TeamsService, AthletesService, CatalogSecurityService],
+  providers: [
+    TeamsService,
+    AthletesService,
+    CatalogSecurityService,
+    CanManageCatalogGuard,
+    AthletePIIInterceptor,
+  ],
+  exports: [
+    TeamsService,
+    AthletesService,
+    CatalogSecurityService,
+    CanManageCatalogGuard,
+    AthletePIIInterceptor,
+  ],
 })
 export class CatalogModule {}

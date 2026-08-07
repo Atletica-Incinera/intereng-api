@@ -85,22 +85,36 @@ export function storeDocument(doc: string): string {
  * @param doc The plaintext decrypted document.
  * @returns The masked representation of the document.
  */
+interface MaskingStrategy {
+  test: (doc: string) => boolean;
+  mask: (doc: string) => string;
+}
+
+const maskingStrategies: MaskingStrategy[] = [
+  {
+    // Formatted CPF: "XXX.XXX.XXX-XX" -> "***.XXX.***-**"
+    test: (doc) => /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(doc),
+    mask: (doc) => `***.${doc.substring(4, 7)}.***-**`,
+  },
+  {
+    // Unformatted CPF: "XXXXXXXXXXX" -> "***XXX*****"
+    test: (doc) => /^\d{11}$/.test(doc),
+    mask: (doc) => `***${doc.substring(3, 6)}*****`,
+  },
+  {
+    // Generic fallback for masking other documents
+    test: (doc) => doc.length > 5,
+    mask: (doc) => {
+      const midStart = Math.floor(doc.length / 2) - 1;
+      const midEnd = midStart + 3;
+      const prefix = '*'.repeat(midStart);
+      const suffix = '*'.repeat(doc.length - midEnd);
+      return `${prefix}${doc.substring(midStart, midEnd)}${suffix}`;
+    },
+  },
+];
+
 export function maskDocument(doc: string): string {
-  // Check if it matches formatted CPF: XXX.XXX.XXX-XX
-  if (/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(doc)) {
-    return `***.${doc.substring(4, 7)}.***-**`;
-  }
-  // Check if it matches unformatted CPF: XXXXXXXXXXX
-  if (/^\d{11}$/.test(doc)) {
-    return `***${doc.substring(3, 6)}*****`;
-  }
-  // Generic fallback for masking
-  if (doc.length > 5) {
-    const midStart = Math.floor(doc.length / 2) - 1;
-    const midEnd = midStart + 3;
-    const prefix = '*'.repeat(midStart);
-    const suffix = '*'.repeat(doc.length - midEnd);
-    return `${prefix}${doc.substring(midStart, midEnd)}${suffix}`;
-  }
-  return '***';
+  const strategy = maskingStrategies.find((s) => s.test(doc));
+  return strategy ? strategy.mask(doc) : '***';
 }

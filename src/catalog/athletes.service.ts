@@ -6,7 +6,6 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { paginate, PaginatedResult } from '../common/utils/paginate';
 import { Athlete, Prisma } from '@prisma/client';
 import { storeDocument } from './security.utils';
-import { CatalogSecurityService } from './catalog-security.service';
 
 /**
  * Service responsible for managing athletes inside the global catalog.
@@ -18,7 +17,6 @@ export class AthletesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly security: CatalogSecurityService,
   ) {}
 
   /**
@@ -40,10 +38,8 @@ export class AthletesService {
   async createAthlete(
     dto: CreateAthleteDto,
     staffId: string,
-    isSuperAdmin: boolean,
+    _isSuperAdmin: boolean,
   ): Promise<Athlete> {
-    await this.security.checkCanManageCatalog(staffId, isSuperAdmin);
-
     const storedDoc = storeDocument(dto.document);
     const existing = await this.prisma.athlete.findUnique({
       where: { document: storedDoc },

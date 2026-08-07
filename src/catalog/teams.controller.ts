@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { toTeamResponseDto } from './catalog.mapper';
 import { GetCatalogQueryDto } from './dto/get-catalog-query.dto';
+import { CanManageCatalogGuard } from './guards/can-manage-catalog.guard';
 
 /**
  * Controller responsible for managing teams in the global catalog.
@@ -38,7 +39,7 @@ export class TeamsController {
    * @throws ConflictException if a team with the specified slug already exists.
    */
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, CanManageCatalogGuard)
   @HttpCode(HttpStatus.CREATED)
   async createTeam(@Body() dto: CreateTeamDto, @CurrentUser() user: AuthenticatedUser) {
     const team = await this.service.createTeam(dto, user.id, user.isSuperAdmin);

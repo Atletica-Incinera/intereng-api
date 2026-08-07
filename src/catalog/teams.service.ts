@@ -5,7 +5,6 @@ import { CreateTeamDto } from './dto/create-team.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { paginate, PaginatedResult } from '../common/utils/paginate';
 import { Team, Prisma } from '@prisma/client';
-import { CatalogSecurityService } from './catalog-security.service';
 
 /**
  * Service responsible for managing teams inside the global catalog.
@@ -16,7 +15,6 @@ export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly security: CatalogSecurityService,
   ) {}
 
   /**
@@ -33,9 +31,7 @@ export class TeamsService {
    * @throws ForbiddenException If the creator lacks catalog management rights.
    * @throws ConflictException If a team with the specified slug already exists.
    */
-  async createTeam(dto: CreateTeamDto, staffId: string, isSuperAdmin: boolean): Promise<Team> {
-    await this.security.checkCanManageCatalog(staffId, isSuperAdmin);
-
+  async createTeam(dto: CreateTeamDto, staffId: string, _isSuperAdmin: boolean): Promise<Team> {
     const existing = await this.prisma.team.findUnique({
       where: { slug: dto.slug },
     });
