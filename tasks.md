@@ -22,7 +22,7 @@
 ## Lote 2 (paralelizável entre agentes diferentes, não entre iterações deste loop)
 - [x] TASK-02 — Competitions & Editions
 - [x] TASK-03 — Disciplines
-- [ ] TASK-04 — Teams & Athletes
+- [x] TASK-04 — Teams & Athletes
 
 ## Lote 3
 - [ ] TASK-06 — Edition Staff Roles
