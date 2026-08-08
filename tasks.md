@@ -30,7 +30,7 @@
 - [x] TASK-07 — Tournaments
 
 ## Lote 4-9
-- [ ] TASK-08 — Phases & Groups
+- [x] TASK-08 — Phases & Groups
 - [ ] TASK-09 — Tournament Entries
 - [ ] TASK-10 — Matches
 - [ ] TASK-11 — Match Events
