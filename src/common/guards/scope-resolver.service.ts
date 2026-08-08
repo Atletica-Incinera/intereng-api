@@ -1,6 +1,10 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ScopeResolverStrategy, AuthenticatedRequest, ResolvedScope } from './scope-resolver.interface';
+import {
+  ScopeResolverStrategy,
+  AuthenticatedRequest,
+  ResolvedScope,
+} from './scope-resolver.interface';
 
 // Re-export interface types for backward compatibility
 export * from './scope-resolver.interface';

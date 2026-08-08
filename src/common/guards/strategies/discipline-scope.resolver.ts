@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ScopeResolverStrategy, ResolvedScope, AuthenticatedRequest } from '../scope-resolver.interface';
+import {
+  ScopeResolverStrategy,
+  ResolvedScope,
+  AuthenticatedRequest,
+} from '../scope-resolver.interface';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**

@@ -23,7 +23,5 @@ export const SCOPE_PARAM_KEY = 'scope-param';
  * @param paramName The name of the key inside request parameters, body, or query string (e.g. 'matchId')
  * @param entityType The specific database entity type to resolve (e.g. 'match'). If omitted, the guard will attempt to infer it.
  */
-export const ScopeParam = (
-  paramName: string,
-  entityType?: string,
-) => SetMetadata(SCOPE_PARAM_KEY, { paramName, entityType });
+export const ScopeParam = (paramName: string, entityType?: string) =>
+  SetMetadata(SCOPE_PARAM_KEY, { paramName, entityType });

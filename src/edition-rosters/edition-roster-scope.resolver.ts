@@ -17,11 +17,7 @@ export class EditionRosterScopeResolver implements ScopeResolverStrategy {
    * @param prisma The Prisma client
    * @returns Object containing resolved editionId and disciplineId
    */
-  async resolve(
-    value: string,
-    request: unknown,
-    prisma: PrismaService,
-  ): Promise<ResolvedScope> {
+  async resolve(value: string, request: unknown, prisma: PrismaService): Promise<ResolvedScope> {
     const roster = await prisma.editionRoster.findUnique({
       where: { id: value },
       include: {
