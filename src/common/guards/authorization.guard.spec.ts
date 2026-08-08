@@ -4,7 +4,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EditionStaffRoleType, TournamentFormat, PhaseType, MatchStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorizationGuard } from './authorization.guard';
-import { ScopeResolverService } from './scope-resolver.service';
+import {
+  ScopeResolverService,
+  SCOPE_RESOLVER_STRATEGIES,
+  ScopeResolverStrategyProvider,
+} from './scope-resolver.service';
 import { REQUIRE_ROLE_KEY } from '../decorators/require-role.decorator';
 import { SCOPE_PARAM_KEY } from '../decorators/scope-param.decorator';
 
@@ -41,7 +45,14 @@ describe('AuthorizationGuard', () => {
       'postgresql://postgres:postgres@localhost:5432/competitions?schema=public';
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PrismaService, Reflector, ScopeResolverService, AuthorizationGuard],
+      providers: [
+        PrismaService,
+        Reflector,
+        ScopeResolverService,
+        AuthorizationGuard,
+        ...SCOPE_RESOLVER_STRATEGIES,
+        ScopeResolverStrategyProvider,
+      ],
     }).compile();
 
     prisma = module.get<PrismaService>(PrismaService);

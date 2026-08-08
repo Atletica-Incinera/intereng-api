@@ -7,7 +7,7 @@ export interface ScopeParamMetadata {
   /** The name of the parameter in the request (e.g. 'editionId', 'matchId') */
   paramName: string;
   /** The entity type corresponding to the parameter, used to resolve edition/discipline IDs */
-  entityType?: 'edition' | 'discipline' | 'tournament' | 'phase' | 'match' | 'editionDiscipline';
+  entityType?: string;
 }
 
 export const SCOPE_PARAM_KEY = 'scope-param';
@@ -25,5 +25,5 @@ export const SCOPE_PARAM_KEY = 'scope-param';
  */
 export const ScopeParam = (
   paramName: string,
-  entityType?: 'edition' | 'discipline' | 'tournament' | 'phase' | 'match' | 'editionDiscipline',
+  entityType?: string,
 ) => SetMetadata(SCOPE_PARAM_KEY, { paramName, entityType });
