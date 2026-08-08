@@ -31,7 +31,7 @@
 
 ## Lote 4-9
 - [x] TASK-08 — Phases & Groups
-- [ ] TASK-09 — Tournament Entries
+- [x] TASK-09 — Tournament Entries
 - [ ] TASK-10 — Matches
 - [ ] TASK-11 — Match Events
 - [ ] TASK-12 — Real-time (SSE)
