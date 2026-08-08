@@ -27,7 +27,7 @@
 ## Lote 3
 - [x] TASK-05 — Edition Roster
 - [x] TASK-06 — Edition Staff Roles
-- [ ] TASK-07 — Tournaments
+- [x] TASK-07 — Tournaments
 
 ## Lote 4-9
 - [ ] TASK-08 — Phases & Groups
