@@ -1,0 +1,9 @@
+export const TOURNAMENT_STATUS_TRANSITIONS = {
+  DRAFT: ['SCHEDULED', 'CANCELLED'],
+  SCHEDULED: ['DRAFT', 'ONGOING', 'CANCELLED'],
+  ONGOING: ['FINISHED', 'CANCELLED'],
+  FINISHED: [],
+  CANCELLED: [],
+} as const;
+
+export type TournamentStatus = keyof typeof TOURNAMENT_STATUS_TRANSITIONS;

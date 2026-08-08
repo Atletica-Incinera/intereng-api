@@ -1,6 +1,10 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ScopeResolverStrategy, AuthenticatedRequest, ResolvedScope } from './scope-resolver.interface';
+import {
+  ScopeResolverStrategy,
+  AuthenticatedRequest,
+  ResolvedScope,
+} from './scope-resolver.interface';
 
 // Re-export interface types for backward compatibility
 export * from './scope-resolver.interface';
@@ -9,6 +13,7 @@ import { EditionScopeResolver } from './strategies/edition-scope.resolver';
 import { DisciplineScopeResolver } from './strategies/discipline-scope.resolver';
 import { TournamentScopeResolver } from './strategies/tournament-scope.resolver';
 import { PhaseScopeResolver } from './strategies/phase-scope.resolver';
+import { GroupScopeResolver } from './strategies/group-scope.resolver';
 import { MatchScopeResolver } from './strategies/match-scope.resolver';
 import { EditionDisciplineScopeResolver } from './strategies/edition-discipline-scope.resolver';
 import { EditionRosterScopeResolver } from '../../edition-rosters/edition-roster-scope.resolver';
@@ -17,6 +22,7 @@ export { EditionScopeResolver } from './strategies/edition-scope.resolver';
 export { DisciplineScopeResolver } from './strategies/discipline-scope.resolver';
 export { TournamentScopeResolver } from './strategies/tournament-scope.resolver';
 export { PhaseScopeResolver } from './strategies/phase-scope.resolver';
+export { GroupScopeResolver } from './strategies/group-scope.resolver';
 export { MatchScopeResolver } from './strategies/match-scope.resolver';
 export { EditionDisciplineScopeResolver } from './strategies/edition-discipline-scope.resolver';
 
@@ -27,6 +33,7 @@ export const SCOPE_RESOLVER_STRATEGIES = [
   DisciplineScopeResolver,
   TournamentScopeResolver,
   PhaseScopeResolver,
+  GroupScopeResolver,
   MatchScopeResolver,
   EditionDisciplineScopeResolver,
   EditionRosterScopeResolver,
