@@ -1,11 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import * as bcrypt from 'bcryptjs';
-import * as jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key-change-me';
+import { IHashService } from './interfaces/hash-service.interface';
+import { ITokenService } from './interfaces/token-service.interface';
 
 export interface JwtPayload {
   sub: string;
@@ -15,7 +12,11 @@ export interface JwtPayload {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(IHashService) private readonly hashService: IHashService,
+    @Inject(ITokenService) private readonly tokenService: ITokenService,
+  ) {}
 
   /**
    * Helper method to generate access and refresh JWT tokens.
@@ -24,8 +25,8 @@ export class AuthService {
    * @returns Generated access and refresh tokens.
    */
   private generateAuthTokens(payload: JwtPayload): { accessToken: string; refreshToken: string } {
-    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' });
-    const refreshToken = jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    const accessToken = this.tokenService.sign(payload, { expiresIn: '15m', tokenType: 'access' });
+    const refreshToken = this.tokenService.sign(payload, { expiresIn: '7d', tokenType: 'refresh' });
     return { accessToken, refreshToken };
   }
 
@@ -90,7 +91,7 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
 
-    const isPasswordValid = await bcrypt.compare(loginDto.password, staff.passwordHash);
+    const isPasswordValid = await this.hashService.compare(loginDto.password, staff.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
@@ -107,7 +108,7 @@ export class AuthService {
    */
   async refresh(token: string) {
     try {
-      const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as JwtPayload;
+      const decoded = this.tokenService.verify<JwtPayload>(token, { tokenType: 'refresh' });
 
       const staff = await this.prisma.staff.findUnique({
         where: { id: decoded.sub },
@@ -177,7 +178,7 @@ export class AuthService {
    */
   verifyAccessToken(token: string): JwtPayload {
     try {
-      return jwt.verify(token, JWT_SECRET) as JwtPayload;
+      return this.tokenService.verify<JwtPayload>(token, { tokenType: 'access' });
     } catch {
       throw new UnauthorizedException('Token de acesso inválido ou expirado.');
     }

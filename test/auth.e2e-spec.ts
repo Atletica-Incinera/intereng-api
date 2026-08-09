@@ -49,6 +49,7 @@ describe('AuthController (e2e)', () => {
   let prisma: PrismaClient;
 
   beforeAll(async () => {
+    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();

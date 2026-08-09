@@ -25,9 +25,11 @@ import { RequestContextModule } from './common/request-context/request-context.m
 import { pinoLoggerConfig } from './common/logger/logger.config';
 import { RedisModule } from './common/redis/redis.module';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { ConfigModule } from './common/config/config.module';
 
 @Module({
   imports: [
+    ConfigModule,
     PrismaModule,
     RequestContextModule,
     EventEmitterModule.forRoot({ wildcard: true }),

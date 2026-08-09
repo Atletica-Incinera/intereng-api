@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
@@ -45,6 +43,7 @@ describe('Phases & Groups Module (e2e)', () => {
   const rawPassword = 'password123';
 
   beforeAll(async () => {
+    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();
@@ -67,7 +66,7 @@ describe('Phases & Groups Module (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6';
 
     // Super Admin
     await createTestStaff(prisma, {

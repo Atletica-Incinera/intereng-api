@@ -1,30 +1,48 @@
+/**
+ * Service responsible for creating and verifying JWT tokens.
+ * It delegates secret management to ConfigService, allowing flexible token types
+ * (access, refresh, or custom) without hard‑coded fallbacks, thus respecting
+ * the Open/Closed Principle.
+ */
 import { Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
-import { ITokenService } from '../interfaces/token-service.interface';
+import { ITokenService, TokenType } from '../interfaces/token-service.interface';
+import { ConfigService } from '../../common/config/config.service';
 
 @Injectable()
 export class JwtTokenService implements ITokenService {
-  sign(payload: Record<string, any>, options?: { expiresIn: string | number }): string {
-    const secret =
-      options?.expiresIn === '7d'
-        ? process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key-change-me'
-        : process.env.JWT_SECRET || 'super-secret-key-change-me';
-    return jwt.sign(payload, secret, options as jwt.SignOptions);
+  constructor(private readonly configService: ConfigService) {}
+
+  /**
+   * Signs a payload to generate a JWT token string.
+   * The secret used depends on the optional `tokenType` provided in options.
+   */
+  sign(
+    payload: Record<string, any>,
+    options?: { expiresIn?: string | number; tokenType?: TokenType },
+  ): string {
+    const tokenType = options?.tokenType ?? 'access';
+    const secret = this.configService.getJwtSecret(tokenType);
+    const signOptions: jwt.SignOptions = {};
+    if (options?.expiresIn !== undefined) {
+      signOptions.expiresIn = options.expiresIn as jwt.SignOptions['expiresIn'];
+    }
+    return jwt.sign(payload, secret, signOptions);
   }
 
-  verify<T>(token: string): T {
-    try {
-      // Try verifying as an access token first, then refresh token
-      try {
-        const secret = process.env.JWT_SECRET || 'super-secret-key-change-me';
-        return jwt.verify(token, secret) as T;
-      } catch {
-        const refreshSecret =
-          process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key-change-me';
-        return jwt.verify(token, refreshSecret) as T;
-      }
-    } catch (err) {
-      throw err;
-    }
+  /**
+   * Verifies the validity of a given JWT token.
+   *
+   * @template T The expected type of the decoded token payload.
+   * @param token The JWT token string to verify.
+   * @param options Configuration options containing tokenType.
+   * @returns The decoded token payload of type T if verification is successful.
+   * @throws {JsonWebTokenError} If the signature is invalid or token is malformed.
+   * @throws {TokenExpiredError} If the token has expired.
+   */
+  verify<T>(token: string, options?: { tokenType?: TokenType }): T {
+    const tokenType = options?.tokenType ?? 'access';
+    const secret = this.configService.getJwtSecret(tokenType);
+    return jwt.verify(token, secret) as T;
   }
 }

@@ -2,11 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UnauthorizedException } from '@nestjs/common';
-import * as bcrypt from 'bcryptjs';
-
-jest.mock('bcryptjs', () => ({
-  compare: jest.fn(),
-}));
+import { IHashService } from './interfaces/hash-service.interface';
+import { ITokenService } from './interfaces/token-service.interface';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -20,9 +17,24 @@ describe('AuthService', () => {
     },
   };
 
+  const mockHashService = {
+    compare: jest.fn(),
+    hash: jest.fn(),
+  };
+
+  const mockTokenService = {
+    sign: jest.fn(),
+    verify: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AuthService, { provide: PrismaService, useValue: mockPrismaService }],
+      providers: [
+        AuthService,
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: IHashService, useValue: mockHashService },
+        { provide: ITokenService, useValue: mockTokenService },
+      ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
@@ -48,7 +60,7 @@ describe('AuthService', () => {
         passwordHash: 'hashedpassword',
         isSuperAdmin: false,
       });
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      mockHashService.compare.mockResolvedValue(false);
 
       await expect(
         service.login({ email: 'test@example.com', password: 'wrongpassword' }),
@@ -64,15 +76,18 @@ describe('AuthService', () => {
         isSuperAdmin: false,
       };
       mockPrismaService.staff.findUnique.mockResolvedValue(staffMock);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockHashService.compare.mockResolvedValue(true);
+      mockTokenService.sign
+        .mockReturnValueOnce('mockAccessToken')
+        .mockReturnValueOnce('mockRefreshToken');
 
       const result = await service.login({
         email: 'test@example.com',
         password: 'password',
       });
 
-      expect(result).toHaveProperty('accessToken');
-      expect(result).toHaveProperty('refreshToken');
+      expect(result).toHaveProperty('accessToken', 'mockAccessToken');
+      expect(result).toHaveProperty('refreshToken', 'mockRefreshToken');
       expect(result.expiresIn).toBe(900);
       expect(result.staff.email).toBe(staffMock.email);
     });

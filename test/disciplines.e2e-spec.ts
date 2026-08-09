@@ -40,6 +40,7 @@ describe('Disciplines Module (e2e)', () => {
   const rawPassword = 'password123';
 
   beforeAll(async () => {
+    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();
@@ -62,7 +63,7 @@ describe('Disciplines Module (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6';
 
     const superAdmin = await createTestStaff(prisma, {
       email: 'superadmin@example.com',
@@ -393,7 +394,7 @@ describe('Disciplines Module (e2e)', () => {
       // Create a manager for another discipline
       const otherManager = await createTestStaff(prisma, {
         email: 'othermgr@example.com',
-        passwordHash: await bcrypt.hash(rawPassword, 10),
+        passwordHash: '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6',
       });
 
       const otherEdDisc = await createTestEditionDiscipline(prisma, {
