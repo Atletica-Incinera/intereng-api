@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { getStreamKey } from './constants';
 import { Observable } from 'rxjs';
-import { MessageEvent } from '@nestjs/common';
 import { RedisService } from '../common/redis/redis.service';
 import { share } from 'rxjs';
 import { RedisStreamSerializer } from './redis-stream-serializer';
@@ -26,27 +25,26 @@ export class RealtimeService {
   }
 
   /**
-   * Creates an Observable that streams match events to the client via Server‑Sent Events (SSE).
+   * Creates an Observable that streams raw match events from the Redis Stream.
    * It reads past events (if `lastEventId` is provided) and then continuously reads from the
-   * Redis Stream using `XREAD`. A heartbeat is emitted periodically to keep the HTTP connection
-   * alive. The observable is shared among subscribers.
+   * Redis Stream using `XREAD`. The observable is shared among subscribers.
    *
    * @param matchId Identifier of the match whose events are streamed.
    * @param lastEventId Optional ID of the last event the client has received; if omitted the
    *                    stream starts from the newest entry (`$`).
-   * @returns An {@link Observable<MessageEvent>} emitting Redis stream messages and heartbeats.
+   * @returns An {@link Observable} emitting raw Redis stream messages containing id and data.
    * @throws Propagates any error thrown by the underlying Redis client during reading.
    */
-  createStream(matchId: string, lastEventId?: string): Observable<MessageEvent> {
+  createStream(
+    matchId: string,
+    lastEventId?: string,
+  ): Observable<{ id: string; data: Record<string, any> }> {
     const client = this.redisService.getClient();
     const streamKey = getStreamKey(matchId);
     const startId = lastEventId ?? '$';
     const maxEvents = 6;
-    // Heartbeat interval (milliseconds) - about 25s as per PRD
-    const heartbeatIntervalMs = 25000;
-    const observable = new Observable<MessageEvent>((subscriber) => {
+    const observable = new Observable<{ id: string; data: Record<string, any> }>((subscriber) => {
       let currentId = startId;
-      let heartbeatTimer: NodeJS.Timeout | null = null;
       // Duplicate client to prevent blocking other commands on the shared connection
       const blockingClient = client.duplicate();
 
@@ -56,24 +54,10 @@ export class RealtimeService {
         }
       });
 
-      const sendHeartbeat = () => {
-        if (!subscriber.closed) {
-          subscriber.next({
-            data: { type: 'heartbeat' },
-            id: undefined,
-          });
-        }
-      };
-
-      const startHeartbeat = () => {
-        heartbeatTimer = setInterval(sendHeartbeat, heartbeatIntervalMs);
-      };
-
-      const stopHeartbeat = () => {
-        if (heartbeatTimer) {
-          clearInterval(heartbeatTimer);
-          heartbeatTimer = null;
-        }
+      const emitMessage = (msgId: string, fields: string[]) => {
+        const data = this.parseFields(fields);
+        subscriber.next({ id: msgId, data });
+        currentId = msgId;
       };
 
       const readPast = async () => {
@@ -85,9 +69,7 @@ export class RealtimeService {
             if (msgId === lastEventId) {
               continue;
             }
-            const data = this.parseFields(fields);
-            subscriber.next({ data, id: msgId, type: 'match-event' });
-            currentId = msgId;
+            emitMessage(msgId, fields);
           }
         }
       };
@@ -115,9 +97,7 @@ export class RealtimeService {
             if (sent >= maxEvents) {
               break;
             }
-            const data = this.parseFields(fields);
-            subscriber.next({ data, id: msgId, type: 'match-event' });
-            currentId = msgId;
+            emitMessage(msgId, fields);
             sent++;
           }
           // Continue reading after a short async tick
@@ -135,7 +115,6 @@ export class RealtimeService {
 
       // Initialize flow
       void (async () => {
-        startHeartbeat();
         try {
           await readPast();
           if (!subscriber.closed) {
@@ -150,7 +129,6 @@ export class RealtimeService {
 
       // Cleanup on unsubscribe
       return () => {
-        stopHeartbeat();
         // Disconnect the duplicated blocking connection immediately to release resources
         blockingClient.disconnect();
       };
