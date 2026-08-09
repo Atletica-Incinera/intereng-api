@@ -3,7 +3,7 @@ import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import { setupTestEnv } from './test-setup';
+import { setupTestEnv, MOCK_PASSWORD_HASH } from './test-setup';
 import { resetDb } from './db-utils';
 import { PrismaClient, EditionStaffRoleType } from '@prisma/client';
 import {
@@ -62,7 +62,7 @@ describe('Disciplines Module (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6';
+    const passwordHash = MOCK_PASSWORD_HASH;
 
     const superAdmin = await createTestStaff(prisma, {
       email: 'superadmin@example.com',
@@ -393,7 +393,7 @@ describe('Disciplines Module (e2e)', () => {
       // Create a manager for another discipline
       const otherManager = await createTestStaff(prisma, {
         email: 'othermgr@example.com',
-        passwordHash: '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6',
+        passwordHash: MOCK_PASSWORD_HASH,
       });
 
       const otherEdDisc = await createTestEditionDiscipline(prisma, {
