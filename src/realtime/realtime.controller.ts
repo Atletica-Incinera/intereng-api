@@ -1,6 +1,6 @@
 import { Controller, Header, Req, Sse, MessageEvent, Param } from '@nestjs/common';
 import type { Request } from 'express';
-import { Observable } from 'rxjs';
+import { Observable, interval, map, merge } from 'rxjs';
 import { RealtimeService } from './realtime.service';
 
 /**
@@ -10,8 +10,6 @@ import { RealtimeService } from './realtime.service';
 @Controller('matches')
 export class RealtimeController {
   constructor(private readonly realtimeService: RealtimeService) {}
-
-  // Duplicate import removed
 
   /**
    * Establishes a real-time Server-Sent Events (SSE) stream for a specific match.
@@ -36,6 +34,22 @@ export class RealtimeController {
   @Header('Content-Type', 'text/event-stream')
   stream(@Param('matchId') matchId: string, @Req() request: Request): Observable<MessageEvent> {
     const lastEventId = request.headers['last-event-id'] as string | undefined;
-    return this.realtimeService.createStream(matchId, lastEventId);
+
+    const eventStream$ = this.realtimeService.createStream(matchId, lastEventId).pipe(
+      map((event) => ({
+        data: event.data,
+        id: event.id,
+        type: 'match-event',
+      } as MessageEvent)),
+    );
+
+    const heartbeat$ = interval(25000).pipe(
+      map(() => ({
+        data: { type: 'heartbeat' },
+      } as MessageEvent)),
+    );
+
+    return merge(eventStream$, heartbeat$);
   }
 }
+
