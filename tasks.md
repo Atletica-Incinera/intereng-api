@@ -35,6 +35,6 @@
 - [x] TASK-10 — Matches
 - [x] TASK-11 — Match Events
 - [x] TASK-12 — Real-time (SSE)
-- [ ] TASK-13 — Phase Standings
+- [x] TASK-13 — Phase Standings
 - [ ] TASK-14 — Audit Logs
 - [ ] TASK-15 — Rotas públicas agregadas
