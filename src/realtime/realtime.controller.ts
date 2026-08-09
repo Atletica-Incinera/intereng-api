@@ -40,16 +40,15 @@ export class RealtimeController {
         data: event.data,
         id: event.id,
         type: 'match-event',
-      } as MessageEvent)),
+      })),
     );
 
     const heartbeat$ = interval(25000).pipe(
       map(() => ({
         data: { type: 'heartbeat' },
-      } as MessageEvent)),
+      })),
     );
 
     return merge(eventStream$, heartbeat$);
   }
 }
-

@@ -8,7 +8,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DomainEvents, MatchEventCreatedEvent } from '../src/common/events';
 import { RedisService } from '../src/common/redis/redis.service';
 import http from 'http';
-import { AddressInfo } from 'net';
 
 describe('Realtime Module (e2e)', () => {
   let app: INestApplication;

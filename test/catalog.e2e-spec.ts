@@ -16,7 +16,6 @@ import {
   createTestEditionDiscipline,
   createTestDiscipline,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 import { storeDocument } from '../src/catalog/security.utils';
 
 describe('Catalog Module (e2e)', () => {

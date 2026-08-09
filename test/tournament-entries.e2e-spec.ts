@@ -18,7 +18,6 @@ import {
   createTestTournament,
   createTestTournamentEntry,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Tournament Entries Module (e2e)', () => {
   let app: INestApplication<App>;

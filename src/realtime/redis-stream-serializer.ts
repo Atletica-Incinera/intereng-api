@@ -77,4 +77,3 @@ export class RedisStreamSerializer {
     return data;
   }
 }
-

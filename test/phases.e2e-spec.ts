@@ -18,7 +18,6 @@ import {
   createTestPhase,
   createTestGroup,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Phases & Groups Module (e2e)', () => {
   let app: INestApplication<App>;

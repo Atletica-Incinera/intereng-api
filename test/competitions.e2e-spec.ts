@@ -12,7 +12,6 @@ import {
   createTestCompetitionEdition,
   createTestEditionStaffRole,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Competitions & Editions (e2e)', () => {
   let app: INestApplication<App>;

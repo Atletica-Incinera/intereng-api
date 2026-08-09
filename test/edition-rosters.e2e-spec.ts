@@ -17,7 +17,6 @@ import {
   createTestAthlete,
   createTestEditionRoster,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Edition Rosters Module (e2e)', () => {
   let app: INestApplication<App>;

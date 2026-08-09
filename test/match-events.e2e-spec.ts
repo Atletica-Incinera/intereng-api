@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient, EditionStaffRoleType } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { setupTestEnv } from './test-setup';

@@ -8,4 +8,3 @@ export function setupTestEnv() {
 }
 
 export const MOCK_PASSWORD_HASH = '$2b$10$EXunA2kI86D5KaloSvNjQuIQOWNYzqKvdjLLASS76Dokg26rmjuE6';
-

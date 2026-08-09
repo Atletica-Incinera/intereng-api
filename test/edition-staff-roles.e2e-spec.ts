@@ -14,7 +14,6 @@ import {
   createTestEditionDiscipline,
   createTestEditionStaffRole,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Edition Staff Roles Module (e2e)', () => {
   let app: INestApplication<App>;

@@ -14,7 +14,6 @@ import {
   createTestDiscipline,
   createTestEditionDiscipline,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Disciplines Module (e2e)', () => {
   let app: INestApplication<App>;
