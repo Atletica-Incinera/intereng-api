@@ -19,7 +19,6 @@ describe('Realtime Module (e2e)', () => {
   let port: number;
 
   beforeAll(async () => {
-    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();

@@ -40,7 +40,6 @@ describe('Disciplines Module (e2e)', () => {
   const rawPassword = 'password123';
 
   beforeAll(async () => {
-    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();

@@ -45,7 +45,6 @@ describe('Match Events Module (e2e)', () => {
   let login: (email: string) => Promise<string>;
 
   beforeAll(async () => {
-    jest.setTimeout(30000);
     setupTestEnv();
     prisma = new PrismaClient();
     await prisma.$connect();
