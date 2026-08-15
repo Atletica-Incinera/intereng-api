@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: intereng-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-competitions}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_pass}
+    volumes:
+      - intereng_postgres_data:/var/lib/postgresql/data
+    networks:
+      - intereng-internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  redis:
+    image: redis:7-alpine
+    container_name: intereng-redis
+    restart: always
+    volumes:
+      - intereng_redis_data:/data
+    networks:
+      - intereng-internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intereng-api
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_pass}@intereng-postgres:5432/${POSTGRES_DB:-competitions}?schema=public
+      - REDIS_URL=redis://intereng-redis:6379
+      - REDIS_STREAM_TTL=${REDIS_STREAM_TTL:-7200}
+      - JWT_SECRET=${JWT_SECRET}
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - intereng-internal
+      - incinera-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+volumes:
+  intereng_postgres_data:
+  intereng_redis_data:
+
+networks:
+  intereng-internal:
+    driver: bridge
+  incinera-network:
+    external: true
