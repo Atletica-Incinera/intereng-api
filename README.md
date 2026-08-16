@@ -4,6 +4,55 @@ Este é o repositório da API do sistema de competições dos Jogos Universitár
 
 ---
 
+## Contrato de integração com a PWA
+
+A API será a fonte de verdade da PWA `pwa-torneios`, sem alteração das páginas existentes. O contrato congelado é o `FrontendState` e a união `Action` do frontend. Toda resposta JSON usa `{ "data": T, "meta"?: object }`; todo erro usa `{ "error": { "code": string, "message": string, "details"?: unknown, "requestId"?: string } }`.
+
+| Método | Rota | Responsabilidade |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/login` | autenticar, criar refresh HttpOnly e devolver `{ token, expiresAt, user }` |
+| `POST` | `/api/v1/auth/refresh` | rotacionar refresh e devolver nova sessão |
+| `POST` | `/api/v1/auth/logout` | revogar refresh e limpar cookie |
+| `GET` | `/api/v1/auth/me` | usuário, papel e escopo vigentes |
+| `GET` | `/api/v1/editions/:id/snapshot` | snapshot privado compatível com `FrontendState` e `meta.revision` |
+| `GET` | `/api/v1/editions/:id/public-snapshot` | snapshot público redigido |
+| `POST` | `/api/v1/editions/:id/actions` | executar uma das 32 ações de modo idempotente e transacional |
+| `GET` | `/api/v1/editions/:id/stream` | SSE com invalidação `{ editionId, revision }` |
+| `GET` | `/api/v1/editions/:id/live` | partidas ao vivo públicas |
+| `GET` | `/api/v1/tournaments/:id/bracket` | chaveamento público |
+| `GET` | `/api/v1/audit-logs` | auditoria global paginada |
+| `GET` | `/api/v1/editions/:id/audit-logs` | auditoria da edição paginada |
+| `POST` | `/api/v1/teams/:id/logo-upload-url` | assinar upload WebP no S3/MinIO e devolver `fileKey` imutável |
+
+As ações aceitas são:
+
+| Domínio | Tipos aceitos |
+| --- | --- |
+| Partida | `match/schedule`, `match/update`, `match/start`, `match/updateClock`, `match/registerEvent`, `match/claimOperator`, `match/releaseOperator`, `match/undoEvent`, `match/finish`, `match/correctResult` |
+| Categoria | `category/create`, `category/update`, `category/generateMatches` |
+| Modalidade | `discipline/update` |
+| Equipe | `team/create`, `team/update` |
+| Atleta | `athlete/create`, `athlete/update` |
+| Ranking | `ranking/addMetric`, `ranking/updateMetric`, `ranking/removeMetric`, `ranking/addAwards`, `ranking/revokeAward`, `ranking/close`, `ranking/reopen` |
+| Competição | `competition/create`, `competition/rename`, `competition/activate` |
+| Edição | `edition/create`, `edition/update`, `edition/activate` |
+| Staff | `staff/upsert` |
+
+Invariantes da integração:
+
+- `active` pode substituir `:id` e resolve a edição ativa de forma determinística;
+- IDs de criação enviados pelo cliente são validados e preservados;
+- `Idempotency-Key` é obrigatório em mutações e uma repetição devolve o mesmo recibo;
+- autorização, regra esportiva, escrita, auditoria, revisão e recibo pertencem à mesma transação;
+- a resposta da ação só sai após classificação e chaveamento estarem consistentes;
+- snapshots públicos nunca incluem staff, auditoria, documento de atleta ou preferências do dispositivo;
+- SSE apenas invalida a revisão; o cliente recarrega o snapshot autorizado;
+- logotipos persistem como `fileKey`; URLs assinadas nunca são armazenadas.
+
+### Baseline antes da integração
+
+Em 2026-08-16, 14 das 18 suítes do backend passaram sem infraestrutura. As quatro suítes de integração restantes exigem PostgreSQL e Redis locais e serão a primeira validação do ambiente integrado na fase 1. Nenhuma falha de regra ou compilação foi identificada nesse baseline.
+
 ## 1. Visão Geral para Desenvolvedores
 
 Este projeto é desenvolvido seguindo o princípio **spec-driven** e utiliza agentes autônomos de IA integrados para acelerar a entrega de tarefas. 
