@@ -131,6 +131,7 @@ export class AuthorizationGuard implements CanActivate {
       where: {
         staffId: user.id,
         editionId: editionId,
+        revokedAt: null,
       },
       include: {
         editionDiscipline: true,

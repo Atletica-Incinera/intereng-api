@@ -7,6 +7,8 @@ RUN npm ci
 FROM dependencies AS builder
 WORKDIR /app
 COPY schema.prisma ./schema.prisma
+COPY migrations ./migrations
+COPY prisma ./prisma
 COPY nest-cli.json tsconfig*.json ./
 COPY src ./src
 RUN npx prisma generate --schema schema.prisma
@@ -19,6 +21,8 @@ RUN apk add --no-cache openssl
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/schema.prisma ./schema.prisma
+COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/prisma ./prisma
 COPY package*.json ./
 EXPOSE 3000
 CMD ["npm", "run", "start:prod"]

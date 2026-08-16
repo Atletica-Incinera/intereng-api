@@ -136,6 +136,7 @@ export class AuthService {
       where: { id: staffId },
       include: {
         editionRoles: {
+          where: { revokedAt: null },
           include: {
             edition: true,
             editionDiscipline: {

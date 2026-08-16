@@ -10,6 +10,7 @@ import { CreateEditionRosterDto } from './dto/create-edition-roster.dto';
 import { UpdateEditionRosterDto } from './dto/update-edition-roster.dto';
 import { EditionRosterQueryDto } from './dto/edition-roster-query.dto';
 import { EditionRosterWithRelations } from './edition-rosters.mapper';
+import { Prisma } from '@prisma/client';
 
 /**
  * Service handling business logic for edition rosters.
@@ -36,6 +37,17 @@ export class EditionRostersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  private async lockEditionAthlete(
+    tx: Prisma.TransactionClient,
+    editionId: string,
+    athleteId: string,
+  ): Promise<void> {
+    const lockKey = `edition-athlete:${editionId}:${athleteId}`;
+    await tx.$queryRaw<Array<{ acquired: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "acquired"
+    `;
+  }
 
   /**
    * Helper to verify if an edition exists.
@@ -167,6 +179,46 @@ export class EditionRostersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.lockEditionAthlete(tx, editionId, dto.athleteId);
+
+      const concurrentRoster = await tx.editionRoster.findUnique({
+        where: {
+          editionDisciplineId_athleteId: {
+            editionDisciplineId: editionDiscipline.id,
+            athleteId: dto.athleteId,
+          },
+        },
+      });
+      if (concurrentRoster) {
+        throw new ConflictException(
+          `O atleta "${athlete.name}" já possui inscrição nesta modalidade e edição.`,
+        );
+      }
+
+      await tx.editionTeam.upsert({
+        where: { editionId_teamId: { editionId, teamId: dto.teamId } },
+        create: { editionId, teamId: dto.teamId },
+        update: { archived: false },
+      });
+
+      const editionAthlete = await tx.editionAthlete.findUnique({
+        where: { editionId_athleteId: { editionId, athleteId: dto.athleteId } },
+      });
+      if (
+        editionAthlete?.teamId &&
+        editionAthlete.teamId !== dto.teamId &&
+        !editionAthlete.removed
+      ) {
+        throw new ConflictException(
+          `O atleta "${athlete.name}" já está associado a outro time nesta edição.`,
+        );
+      }
+      await tx.editionAthlete.upsert({
+        where: { editionId_athleteId: { editionId, athleteId: dto.athleteId } },
+        create: { editionId, athleteId: dto.athleteId, teamId: dto.teamId },
+        update: { teamId: dto.teamId, removed: false },
+      });
+
       const roster = await tx.editionRoster.create({
         data: {
           editionDisciplineId: editionDiscipline.id,
@@ -228,6 +280,43 @@ export class EditionRostersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const editionId = roster.editionDiscipline.editionId;
+      await this.lockEditionAthlete(tx, editionId, roster.athleteId);
+
+      if (dto.teamId !== undefined) {
+        const conflictingRoster = await tx.editionRoster.findFirst({
+          where: {
+            id: { not: id },
+            athleteId: roster.athleteId,
+            teamId: { not: dto.teamId },
+            editionDiscipline: { editionId },
+          },
+          select: { id: true },
+        });
+        if (conflictingRoster) {
+          throw new ConflictException(
+            'O atleta possui outra inscrição vinculada a um time diferente nesta edição.',
+          );
+        }
+
+        await tx.editionTeam.upsert({
+          where: { editionId_teamId: { editionId, teamId: dto.teamId } },
+          create: { editionId, teamId: dto.teamId },
+          update: { archived: false },
+        });
+        await tx.editionAthlete.upsert({
+          where: {
+            editionId_athleteId: { editionId, athleteId: roster.athleteId },
+          },
+          create: {
+            editionId,
+            athleteId: roster.athleteId,
+            teamId: dto.teamId,
+          },
+          update: { teamId: dto.teamId, removed: false },
+        });
+      }
+
       const updated = await tx.editionRoster.update({
         where: { id },
         data: {

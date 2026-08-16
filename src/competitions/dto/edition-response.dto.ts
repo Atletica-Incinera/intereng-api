@@ -8,6 +8,8 @@ export class EditionResponseDto {
   startDate!: Date;
   endDate!: Date;
   status!: EditionStatus;
+  isActive!: boolean;
+  revision!: number;
   createdAt!: Date;
   updatedAt!: Date;
 }

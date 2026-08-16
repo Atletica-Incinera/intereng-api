@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../common/audit/audit.service';
 import { CreateTournamentEntryDto } from './dto/create-tournament-entry.dto';
@@ -12,6 +13,32 @@ export class TournamentEntriesService {
     private readonly audit: AuditService,
     private readonly validator: TournamentEntryValidator,
   ) {}
+
+  private async ensureEditionMembership(
+    tx: Prisma.TransactionClient,
+    editionId: string,
+    dto: CreateTournamentEntryDto,
+  ): Promise<void> {
+    if (dto.teamId) {
+      await tx.editionTeam.upsert({
+        where: { editionId_teamId: { editionId, teamId: dto.teamId } },
+        create: { editionId, teamId: dto.teamId },
+        update: { archived: false },
+      });
+      return;
+    }
+
+    if (dto.athleteId) {
+      await tx.editionAthlete.upsert({
+        where: { editionId_athleteId: { editionId, athleteId: dto.athleteId } },
+        create: { editionId, athleteId: dto.athleteId, teamId: null },
+        update: { removed: false },
+      });
+      return;
+    }
+
+    throw new BadRequestException('Informe um time ou atleta pertencente à edição.');
+  }
 
   /**
    * Retrieves all tournament entries for a given tournament.
@@ -83,6 +110,8 @@ export class TournamentEntriesService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await this.ensureEditionMembership(tx, tournament.editionDiscipline.editionId, dto);
+
       const entry = await tx.tournamentEntry.create({
         data: {
           tournamentId,

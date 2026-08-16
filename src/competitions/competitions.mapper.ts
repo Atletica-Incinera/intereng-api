@@ -14,6 +14,7 @@ export function toCompetitionResponseDto(competition: Competition): CompetitionR
     id: competition.id,
     name: competition.name,
     slug: competition.slug,
+    isActive: competition.isActive,
     createdAt: competition.createdAt,
     updatedAt: competition.updatedAt,
   };
@@ -35,6 +36,8 @@ export function toEditionResponseDto(edition: CompetitionEdition): EditionRespon
     startDate: edition.startDate,
     endDate: edition.endDate,
     status: edition.status,
+    isActive: edition.isActive,
+    revision: edition.revision,
     createdAt: edition.createdAt,
     updatedAt: edition.updatedAt,
   };

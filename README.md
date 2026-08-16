@@ -155,12 +155,28 @@ Para acelerar o desenvolvimento de forma limpa, utilizamos um pipeline de orques
    ```
 4. Aplique as migrações do Prisma:
    ```bash
-   npx prisma migrate dev
+   npm run prisma:migrate
    ```
-5. Inicie o servidor em modo de desenvolvimento:
+5. Para carregar os dados de demonstração somente no ambiente local:
+   ```powershell
+   $env:SEED_DEMO_DATA='true'
+   npm run prisma:seed
+   ```
+6. Inicie o servidor em modo de desenvolvimento:
    ```bash
    npm run start:dev
    ```
+
+### Banco criado antes das migrations da integração
+
+Instalações locais antigas, criadas com `prisma db push`, possuem as tabelas da baseline, mas não a tabela de histórico do Prisma. Depois de fazer backup, marque somente a baseline como já aplicada e execute a evolução normalmente:
+
+```powershell
+npx prisma migrate resolve --applied 20260816140000_baseline --schema schema.prisma
+npm run prisma:migrate
+```
+
+Não execute `migrate resolve` em banco vazio. Nesse caso, `npm run prisma:migrate` deve aplicar todas as migrations desde a baseline. O seed de demonstração recusa execução em produção e requer `SEED_DEMO_DATA=true` para evitar alterações acidentais.
 
 ### Comandos de Teste e Qualidade:
 * **Executar Testes:** `npm test`

@@ -14,7 +14,12 @@ export function toTeamResponseDto(team: Team): TeamResponseDto {
     id: team.id,
     name: team.name,
     slug: team.slug,
+    initials: team.initials,
+    responsible: team.responsible,
+    logoKey: team.logoKey,
+    archived: team.archived,
     createdAt: team.createdAt,
+    updatedAt: team.updatedAt,
   };
 }
 
@@ -26,7 +31,7 @@ export function toTeamResponseDto(team: Team): TeamResponseDto {
  * @returns The structured AthleteResponseDto.
  */
 export function toAthleteResponseDto(athlete: Athlete): AthleteResponseDto {
-  const decrypted = decryptDocument(athlete.document);
+  const decrypted = athlete.document ? decryptDocument(athlete.document) : null;
 
   return {
     id: athlete.id,
@@ -35,5 +40,6 @@ export function toAthleteResponseDto(athlete: Athlete): AthleteResponseDto {
     birthDate: athlete.birthDate,
     email: athlete.email,
     createdAt: athlete.createdAt,
+    updatedAt: athlete.updatedAt,
   };
 }

@@ -8,8 +8,9 @@ export interface AuditRecordInput {
   action: string;
   entityType: string;
   entityId: string;
-  before?: any;
-  after?: any;
+  before?: unknown;
+  after?: unknown;
+  reason?: string | null;
 }
 
 /**
@@ -47,6 +48,7 @@ export class AuditService {
         action: data.action,
         entityType: data.entityType,
         entityId: data.entityId,
+        reason: data.reason ?? null,
         beforeData:
           data.before !== undefined && data.before !== null
             ? (data.before as Prisma.InputJsonValue)

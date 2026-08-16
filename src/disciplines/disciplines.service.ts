@@ -49,6 +49,7 @@ export class DisciplinesService {
         where: {
           staffId,
           role: EditionStaffRoleType.EDITION_ADMIN,
+          revokedAt: null,
         },
       });
       if (!hasEditionAdminRole) {
