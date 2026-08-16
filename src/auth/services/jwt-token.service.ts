@@ -17,10 +17,7 @@ export class JwtTokenService implements ITokenService {
    * Signs a payload to generate a JWT token string.
    * The secret used depends on the optional `tokenType` provided in options.
    */
-  sign(
-    payload: Record<string, any>,
-    options?: { expiresIn?: string | number; tokenType?: TokenType },
-  ): string {
+  sign(payload: object, options?: { expiresIn?: string | number; tokenType?: TokenType }): string {
     const tokenType = options?.tokenType ?? 'access';
     const secret = this.configService.getJwtSecret(tokenType);
     const signOptions: jwt.SignOptions = {};

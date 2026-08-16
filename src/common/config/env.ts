@@ -67,6 +67,12 @@ export const env = {
   get cookieSameSite(): SameSite {
     return sameSiteValue();
   },
+  get jwtAccessTtlSeconds(): number {
+    return positiveInteger('JWT_ACCESS_TTL_SECONDS', 15 * 60);
+  },
+  get jwtRefreshTtlSeconds(): number {
+    return positiveInteger('JWT_REFRESH_TTL_SECONDS', 7 * 24 * 60 * 60);
+  },
   get jwtSecret(): string {
     return value('JWT_SECRET', 'local-access-secret-change-in-production');
   },

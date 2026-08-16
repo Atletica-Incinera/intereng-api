@@ -4,6 +4,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { IHashService } from './interfaces/hash-service.interface';
 import { ITokenService } from './interfaces/token-service.interface';
+import { ConfigService } from '../common/config/config.service';
+import { RefreshSessionsService } from './services/refresh-sessions.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -12,9 +14,17 @@ describe('AuthService', () => {
     staff: {
       findUnique: jest.fn(),
     },
-    editionStaffRole: {
-      findMany: jest.fn(),
-    },
+  };
+
+  const mockConfigService = {
+    jwtAccessTtlSeconds: 900,
+    jwtRefreshTtlSeconds: 604800,
+  };
+
+  const mockRefreshSessionsService = {
+    create: jest.fn(),
+    rotate: jest.fn(),
+    revoke: jest.fn(),
   };
 
   const mockHashService = {
@@ -32,6 +42,8 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: RefreshSessionsService, useValue: mockRefreshSessionsService },
         { provide: IHashService, useValue: mockHashService },
         { provide: ITokenService, useValue: mockTokenService },
       ],
@@ -59,6 +71,7 @@ describe('AuthService', () => {
         email: 'test@example.com',
         passwordHash: 'hashedpassword',
         isSuperAdmin: false,
+        editionRoles: [],
       });
       mockHashService.compare.mockResolvedValue(false);
 
@@ -74,6 +87,14 @@ describe('AuthService', () => {
         email: 'test@example.com',
         passwordHash: 'hashedpassword',
         isSuperAdmin: false,
+        editionRoles: [
+          {
+            editionId: 'edition-1',
+            role: 'EDITION_ADMIN',
+            edition: { name: 'InterEng 2026' },
+            editionDiscipline: null,
+          },
+        ],
       };
       mockPrismaService.staff.findUnique.mockResolvedValue(staffMock);
       mockHashService.compare.mockResolvedValue(true);
@@ -86,10 +107,22 @@ describe('AuthService', () => {
         password: 'password',
       });
 
-      expect(result).toHaveProperty('accessToken', 'mockAccessToken');
-      expect(result).toHaveProperty('refreshToken', 'mockRefreshToken');
-      expect(result.expiresIn).toBe(900);
-      expect(result.staff.email).toBe(staffMock.email);
+      expect(result.auth.token).toBe('mockAccessToken');
+      expect(result.refreshToken).toBe('mockRefreshToken');
+      expect(result.auth.user).toEqual({
+        id: staffMock.id,
+        email: staffMock.email,
+        name: staffMock.name,
+        role: 'EDITION_ADMIN',
+      });
+      expect(Date.parse(result.auth.expiresAt)).toBeGreaterThan(Date.now());
+      expect(mockRefreshSessionsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token: 'mockRefreshToken',
+          staffId: staffMock.id,
+          editionId: 'edition-1',
+        }),
+      );
     });
   });
 });

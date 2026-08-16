@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { env, type RequiredEnv } from './env';
 
+type CookieSameSite = 'lax' | 'strict' | 'none';
+
 /**
  * Service responsible for accessing application configuration.
  * It encapsulates environment variable lookups and defines fallback configurations.
@@ -50,18 +52,34 @@ export class ConfigService {
     return env.jwtRefreshSecret;
   }
 
+  get jwtAccessTtlSeconds(): number {
+    return env.jwtAccessTtlSeconds;
+  }
+
+  get jwtRefreshTtlSeconds(): number {
+    return env.jwtRefreshTtlSeconds;
+  }
+
+  get cookieDomain(): string | undefined {
+    return env.cookieDomain;
+  }
+
+  get cookieSecure(): boolean {
+    return env.cookieSecure;
+  }
+
+  get cookieSameSite(): CookieSameSite {
+    return env.cookieSameSite;
+  }
+
   /**
    * Retrieves the JWT secret for a given token type.
    * Leverages convention (e.g. JWT_REFRESH_SECRET) to allow extension without code modification.
    */
   getJwtSecret(tokenType: string): string {
-    const key = tokenType === 'access' ? 'JWT_SECRET' : `JWT_${tokenType.toUpperCase()}_SECRET`;
-    const fallback =
-      tokenType === 'refresh'
-        ? 'super-secret-refresh-key-change-me'
-        : tokenType === 'access'
-          ? 'super-secret-key-change-me'
-          : `super-secret-${tokenType}-key-change-me`;
-    return this.getWithFallback(key, fallback);
+    if (tokenType === 'access') return this.jwtSecret;
+    if (tokenType === 'refresh') return this.jwtRefreshSecret;
+
+    return this.getOrThrow(`JWT_${tokenType.toUpperCase()}_SECRET`);
   }
 }
