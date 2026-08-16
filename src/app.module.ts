@@ -20,6 +20,7 @@ import { StandingsModule } from './standings/standings.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { PublicModule } from './public/public.module';
 import { EditionSnapshotsModule } from './edition-snapshots/edition-snapshots.module';
+import { EditionActionsModule } from './edition-actions/edition-actions.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestContextModule } from './common/request-context/request-context.module';
@@ -57,6 +58,7 @@ import { env } from './common/config/env';
     StandingsModule,
     AuditLogsModule,
     EditionSnapshotsModule,
+    EditionActionsModule,
     PublicModule,
   ],
   controllers: [AppController],

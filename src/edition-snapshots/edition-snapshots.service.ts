@@ -29,12 +29,9 @@ export class EditionSnapshotsService {
 
   async getPrivateSnapshot(editionId: string, user: AuthenticatedUser): Promise<SnapshotResultDto> {
     return this.prisma.$transaction(async (transaction) => {
-      const edition = await this.activeEditionResolver.resolve(transaction, editionId);
-      const scope = await this.resolveScope(transaction, edition, user);
-      const snapshot = await this.snapshotMapper.build(transaction, edition, {
-        public: false,
-        scope,
-      });
+      const edition = await this.resolveEditionInTransaction(transaction, editionId);
+      const scope = await this.resolvePrivateScopeInTransaction(transaction, edition, user);
+      const snapshot = await this.buildPrivateSnapshotInTransaction(transaction, edition, scope);
 
       return {
         snapshot,
@@ -42,6 +39,29 @@ export class EditionSnapshotsService {
         etag: this.etag(edition, 'private', this.scopeKey(scope, user)),
       };
     }, SNAPSHOT_TRANSACTION_OPTIONS);
+  }
+
+  resolveEditionInTransaction(
+    transaction: Prisma.TransactionClient,
+    editionId: string,
+  ): Promise<ResolvedEdition> {
+    return this.activeEditionResolver.resolve(transaction, editionId);
+  }
+
+  resolvePrivateScopeInTransaction(
+    transaction: Prisma.TransactionClient,
+    edition: ResolvedEdition,
+    user: AuthenticatedUser,
+  ): Promise<SnapshotScope> {
+    return this.resolveScope(transaction, edition, user);
+  }
+
+  buildPrivateSnapshotInTransaction(
+    transaction: Prisma.TransactionClient,
+    edition: ResolvedEdition,
+    scope: SnapshotScope,
+  ): Promise<FrontendSnapshotDto> {
+    return this.snapshotMapper.build(transaction, edition, { public: false, scope });
   }
 
   async getPublicSnapshot(editionId: string): Promise<SnapshotResultDto> {

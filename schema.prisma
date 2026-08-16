@@ -378,6 +378,7 @@ model Phase {
   id           String     @id @default(cuid())
   tournamentId String
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  clientId     String
   order        Int
   name         String
   type         PhaseType
@@ -390,6 +391,7 @@ model Phase {
   standings PhaseStanding[]
 
   @@unique([tournamentId, order])
+  @@unique([tournamentId, clientId])
   @@index([tournamentId])
   @@map("phases")
 }
@@ -439,8 +441,8 @@ model Match {
   winnerEntryId String?
   winnerEntry   TournamentEntry? @relation("MatchWinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)
 
-  scoreA Int @default(0)
-  scoreB Int @default(0)
+  scoreA Float @default(0)
+  scoreB Float @default(0)
 
   currentPeriod Int       @default(1)
   clockSeconds  Int       @default(0)
@@ -507,8 +509,8 @@ model MatchEvent {
   elapsedSeconds       Int            @default(0)
   period               Int?
   periodElapsedSeconds Int?
-  scoreA               Int?
-  scoreB               Int?
+  scoreA               Float?
+  scoreB               Float?
   points               Int?
   previousScore        Json?
 
@@ -568,13 +570,13 @@ model PhaseStanding {
   entryId String
   entry   TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
-  played       Int  @default(0)
-  won          Int  @default(0)
-  drawn        Int  @default(0)
-  lost         Int  @default(0)
-  scoreFor     Int  @default(0)
-  scoreAgainst Int  @default(0)
-  points       Int  @default(0)
+  played       Int   @default(0)
+  won          Int   @default(0)
+  drawn        Int   @default(0)
+  lost         Int   @default(0)
+  scoreFor     Float @default(0)
+  scoreAgainst Float @default(0)
+  points       Float @default(0)
   rank         Int?
 
   updatedAt DateTime @updatedAt
@@ -698,6 +700,7 @@ model EditionActionReceipt {
 
   @@unique([editionId, idempotencyKey])
   @@index([editionId, createdAt])
+  @@index([idempotencyKey, createdAt])
   @@map("edition_action_receipts")
 }
 

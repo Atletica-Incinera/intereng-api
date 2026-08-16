@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   Injectable,
   NotFoundException,
@@ -80,24 +81,36 @@ export class PhasesService {
 
     // Validate the dynamic JSON config shape based on the phase type
     const validatedConfig = PhaseConfigValidator.validate(dto.type, dto.config);
+    const clientId = dto.clientId?.trim() || randomUUID();
 
-    // Check unique constraint for [tournamentId, order]
-    const existingPhase = await this.prisma.phase.findUnique({
-      where: {
-        tournamentId_order: {
-          tournamentId,
-          order: dto.order,
+    // Check unique constraints for [tournamentId, order] and [tournamentId, clientId]
+    const [existingPhase, existingClientId] = await Promise.all([
+      this.prisma.phase.findUnique({
+        where: {
+          tournamentId_order: {
+            tournamentId,
+            order: dto.order,
+          },
         },
-      },
-    });
+      }),
+      this.prisma.phase.findUnique({
+        where: { tournamentId_clientId: { tournamentId, clientId } },
+      }),
+    ]);
     if (existingPhase) {
       throw new ConflictException(`Já existe uma fase com a ordem "${dto.order}" neste torneio.`);
+    }
+    if (existingClientId) {
+      throw new ConflictException(
+        `Já existe uma fase com o identificador "${clientId}" neste torneio.`,
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
       const phase = await tx.phase.create({
         data: {
           tournamentId,
+          clientId,
           order: dto.order,
           name: dto.name,
           type: dto.type,

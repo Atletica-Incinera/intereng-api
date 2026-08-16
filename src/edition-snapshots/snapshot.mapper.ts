@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   EditionStatus,
+  EventType,
   MatchEventSide,
   MatchStatus,
   OverallAwardOrigin,
@@ -133,6 +134,7 @@ export class SnapshotMapper {
         orderBy: [{ tournamentId: 'asc' }, { order: 'asc' }, { id: 'asc' }],
         select: {
           id: true,
+          clientId: true,
           tournamentId: true,
           order: true,
           name: true,
@@ -305,11 +307,12 @@ export class SnapshotMapper {
       }),
       transaction.matchEvent.findMany({
         where: { matchId: { in: matchIds }, undoneAt: null },
-        orderBy: [{ matchId: 'asc' }, { sequence: 'asc' }],
+        orderBy: [{ matchId: 'asc' }, { sequence: 'desc' }],
         select: {
           id: true,
           matchId: true,
           type: true,
+          metadata: true,
           detail: true,
           side: true,
           elapsedSeconds: true,
@@ -634,6 +637,7 @@ export class SnapshotMapper {
     }>,
     phases: Array<{
       id: string;
+      clientId: string;
       tournamentId: string;
       name: string;
       type: PhaseType;
@@ -658,7 +662,7 @@ export class SnapshotMapper {
         const mappedPhases = phases
           .filter((phase) => phase.tournamentId === tournament.id)
           .map((phase): TournamentPhaseSnapshotDto => ({
-            id: phase.id,
+            id: phase.clientId,
             name: phase.name,
             format: this.mapPhaseType(phase.type),
             groups: groupNamesByPhase.get(phase.id) ?? [],
@@ -739,7 +743,8 @@ export class SnapshotMapper {
     matchEvents: Array<{
       id: string;
       matchId: string;
-      type: string;
+      type: EventType;
+      metadata: Prisma.JsonValue | null;
       detail: string | null;
       side: MatchEventSide;
       elapsedSeconds: number;
@@ -924,7 +929,8 @@ export class SnapshotMapper {
 
   private mapMatchEvent(event: {
     id: string;
-    type: string;
+    type: EventType;
+    metadata: Prisma.JsonValue | null;
     detail: string | null;
     side: MatchEventSide;
     elapsedSeconds: number;
@@ -937,6 +943,7 @@ export class SnapshotMapper {
     occurredAt: Date;
   }): MatchEventSnapshotDto {
     const previous = this.mapPreviousScore(event.previousScore);
+    const type = this.eventLabel(event.type, event.metadata);
     return {
       id: event.id,
       at: event.occurredAt.toISOString(),
@@ -945,8 +952,8 @@ export class SnapshotMapper {
       ...(event.periodElapsedSeconds !== null
         ? { periodElapsedSeconds: event.periodElapsedSeconds }
         : {}),
-      type: event.type,
-      detail: event.detail ?? event.type,
+      type,
+      detail: event.detail ?? type,
       side: this.mapEventSide(event.side),
       scoreA: event.scoreA ?? 0,
       scoreB: event.scoreB ?? 0,
@@ -954,6 +961,30 @@ export class SnapshotMapper {
       ...(event.points !== null ? { points: event.points } : {}),
       ...(previous ? { previous } : {}),
     };
+  }
+
+  private eventLabel(type: EventType, metadata: Prisma.JsonValue | null): string {
+    const clientType = this.asRecord(metadata)?.clientType;
+    if (typeof clientType === 'string') {
+      const normalized = clientType.trim();
+      if (normalized.length >= 1 && normalized.length <= 100) return normalized;
+    }
+    const labels: Record<EventType, string> = {
+      [EventType.GOAL]: 'Gol',
+      [EventType.ASSIST]: 'Assistência',
+      [EventType.YELLOW_CARD]: 'Cartão amarelo',
+      [EventType.RED_CARD]: 'Cartão vermelho',
+      [EventType.POINT]: 'Ponto',
+      [EventType.SET_WON]: 'Set vencido',
+      [EventType.FOUL]: 'Falta',
+      [EventType.TIMEOUT_CALLED]: 'Tempo técnico',
+      [EventType.SUBSTITUTION]: 'Substituição',
+      [EventType.DISQUALIFICATION]: 'Desclassificação',
+      [EventType.CHECKMATE]: 'Xeque-mate',
+      [EventType.WALKOVER_DECLARED]: 'W.O.',
+      [EventType.OTHER]: 'Outro',
+    };
+    return labels[type];
   }
 
   private mapPreviousScore(value: Prisma.JsonValue | null): MatchScoreSnapshotDto | undefined {

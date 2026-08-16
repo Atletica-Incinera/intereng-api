@@ -33,6 +33,22 @@ function sameSiteValue(): SameSite {
   throw new Error('Variável de ambiente inválida: COOKIE_SAME_SITE deve ser lax, strict ou none');
 }
 
+function staffInvitePassword(): string {
+  const configured = process.env.STAFF_INVITE_PASSWORD?.trim();
+  if (configured) {
+    if (configured.length < 8 || Buffer.byteLength(configured, 'utf8') > 72) {
+      throw new Error(
+        'Variável de ambiente inválida: STAFF_INVITE_PASSWORD deve ter entre 8 e 72 bytes',
+      );
+    }
+    return configured;
+  }
+  if (value('NODE_ENV', 'development') === 'production') {
+    throw new Error('Variável de ambiente obrigatória ausente: STAFF_INVITE_PASSWORD');
+  }
+  return 'intereng2026';
+}
+
 export const env = {
   required(name: RequiredEnv): string {
     return value(name);
@@ -78,6 +94,9 @@ export const env = {
   },
   get jwtRefreshSecret(): string {
     return value('JWT_REFRESH_SECRET', 'local-refresh-secret-change-in-production');
+  },
+  get staffInvitePassword(): string {
+    return staffInvitePassword();
   },
   positiveInteger,
   value,

@@ -9,6 +9,10 @@ type CookieSameSite = 'lax' | 'strict' | 'none';
  */
 @Injectable()
 export class ConfigService {
+  constructor() {
+    void env.staffInvitePassword;
+  }
+
   /**
    * Retrieves an environment variable by key.
    */
@@ -58,6 +62,10 @@ export class ConfigService {
 
   get jwtRefreshTtlSeconds(): number {
     return env.jwtRefreshTtlSeconds;
+  }
+
+  get staffInvitePassword(): string {
+    return env.staffInvitePassword;
   }
 
   get cookieDomain(): string | undefined {

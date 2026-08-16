@@ -437,16 +437,39 @@ async function main(): Promise<void> {
       select: { id: true },
     });
 
+    const [phaseAtDemoOrder, phaseUsingGroupsClientId] = await Promise.all([
+      tx.phase.findUnique({
+        where: { tournamentId_order: { tournamentId: tournament.id, order: 1 } },
+        select: { id: true },
+      }),
+      tx.phase.findUnique({
+        where: {
+          tournamentId_clientId: { tournamentId: tournament.id, clientId: 'groups' },
+        },
+        select: { id: true, order: true },
+      }),
+    ]);
+    if (
+      phaseUsingGroupsClientId &&
+      (!phaseAtDemoOrder || phaseUsingGroupsClientId.id !== phaseAtDemoOrder.id)
+    ) {
+      throw new Error(
+        `O clientId "groups" já pertence à fase de ordem ${phaseUsingGroupsClientId.order} ` +
+          'no torneio de demonstração; o seed não escolhe uma fase arbitrariamente.',
+      );
+    }
+
     const phase = await tx.phase.upsert({
       where: { tournamentId_order: { tournamentId: tournament.id, order: 1 } },
       create: {
         tournamentId: tournament.id,
+        clientId: 'groups',
         order: 1,
         name: 'Fase de grupos',
         type: PhaseType.GROUP,
         config: { qualifiers: 2 },
       },
-      update: {},
+      update: { clientId: 'groups' },
       select: { id: true },
     });
 
