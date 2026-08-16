@@ -14,10 +14,10 @@ jobs:
     steps:
       - name: Deploy Backend
         run: |
-          PROJECT_DIR="$HOME/Intereng"
+          PROJECT_DIR="$HOME/intereng-api"
 
           if [ ! -d "$PROJECT_DIR" ]; then
-            git clone https://github.com/Atletica-Incinera/Intereng.git "$PROJECT_DIR"
+            git clone https://github.com/Atletica-Incinera/intereng-api.git "$PROJECT_DIR"
           fi
 
           cd "$PROJECT_DIR"
