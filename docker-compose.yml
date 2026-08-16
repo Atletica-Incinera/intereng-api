@@ -3,6 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: intereng-postgres
     restart: always
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-competitions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -21,6 +23,8 @@ services:
     image: redis:7-alpine
     container_name: intereng-redis
     restart: always
+    ports:
+      - "6379:6379"
     volumes:
       - intereng_redis_data:/data
     networks:
