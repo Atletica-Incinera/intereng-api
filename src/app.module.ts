@@ -26,6 +26,7 @@ import { pinoLoggerConfig } from './common/logger/logger.config';
 import { RedisModule } from './common/redis/redis.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { ConfigModule } from './common/config/config.module';
+import { env } from './common/config/env';
 
 @Module({
   imports: [
@@ -36,7 +37,7 @@ import { ConfigModule } from './common/config/config.module';
     LoggerModule.forRoot(pinoLoggerConfig),
     RedisModule.forRootAsync({
       useFactory: () => ({
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        url: env.redisUrl,
       }),
     }),
 

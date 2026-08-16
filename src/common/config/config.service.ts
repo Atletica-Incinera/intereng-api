@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { env, type RequiredEnv } from './env';
 
 /**
  * Service responsible for accessing application configuration.
@@ -11,6 +12,10 @@ export class ConfigService {
    */
   get(key: string): string | undefined {
     return process.env[key];
+  }
+
+  required(key: RequiredEnv): string {
+    return env.required(key);
   }
 
   /**
@@ -35,14 +40,14 @@ export class ConfigService {
    * Getter for JWT_SECRET.
    */
   get jwtSecret(): string {
-    return this.getJwtSecret('access');
+    return env.jwtSecret;
   }
 
   /**
    * Getter for JWT_REFRESH_SECRET.
    */
   get jwtRefreshSecret(): string {
-    return this.getJwtSecret('refresh');
+    return env.jwtRefreshSecret;
   }
 
   /**
