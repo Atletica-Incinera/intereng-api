@@ -7,13 +7,15 @@ set -uo pipefail
 
 TASK_ID="${1:-}"
 if [[ -z "$TASK_ID" ]]; then
-  echo "Uso: $0 <TASK-ID> [MAX_CYCLES]" >&2
+  echo "Uso: $0 <TASK-ID> [MAX_CYCLES] [MODEL]" >&2
   exit 1
 fi
 
 MAX_CYCLES="${2:-3}"
 CYCLE=0
 AGENT="${AGENT:-agy}"
+MODEL_FLAG="${3:-$AGENT}"
+export AGENT=agy
 REPO_DIR="$(pwd)"
 LOG_DIR="$REPO_DIR/.agent-logs"
 mkdir -p "$LOG_DIR"
@@ -21,9 +23,10 @@ mkdir -p "$LOG_DIR"
 RALPH_FEEDBACK=""
 
 run_engineer() {
-  echo "[Cycle $CYCLE] Iniciando Engineer para a task $TASK_ID..."
   export RALPH_FEEDBACK
-  ./ralph-loop.sh --task "$TASK_ID" --max 15
+  # Remove any persisted agent state so the flag takes effect
+  rm -f "$REPO_DIR/.ralph/current-agent"
+  ./ralph-loop.sh --agent agy --task "$TASK_ID" --max 15
   return $?
 }
 
@@ -56,11 +59,8 @@ ${diff_content}
 
   local reviewer_output_file="$LOG_DIR/reviewer-${TASK_ID}-cycle-${CYCLE}.log"
   
-  if [[ "$AGENT" == "agy" ]]; then
-    agy -p "$reviewer_prompt" --output-format text > "$reviewer_output_file" 2>&1
-  else
-    gemini -p "$reviewer_prompt" > "$reviewer_output_file" 2>&1
-  fi
+  # Use agy for reviewer (ignore MODEL_FLAG which may be unavailable)
+    agy -p "${reviewer_prompt}" --output-format text > "${reviewer_output_file}" 2>&1
 
   if grep -q "STATUS: APROVADO" "$reviewer_output_file"; then
     echo "Reviewer aprovou as alterações!"

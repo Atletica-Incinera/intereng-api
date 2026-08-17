@@ -1,11 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import { setupTestEnv } from './test-setup';
+import { setupTestEnv, MOCK_PASSWORD_HASH } from './test-setup';
 import { resetDb } from './db-utils';
 import {
   PrismaClient,
@@ -22,7 +20,6 @@ import {
   createTestEditionDiscipline,
   createTestTournament,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Tournaments Module (e2e)', () => {
   let app: INestApplication<App>;
@@ -68,7 +65,7 @@ describe('Tournaments Module (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = MOCK_PASSWORD_HASH;
 
     // Super Admin
     await createTestStaff(prisma, {

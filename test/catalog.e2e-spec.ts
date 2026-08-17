@@ -1,12 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import { setupTestEnv } from './test-setup';
+import { setupTestEnv, MOCK_PASSWORD_HASH } from './test-setup';
 import { resetDb } from './db-utils';
 import { PrismaClient, EditionStaffRoleType } from '@prisma/client';
 import {
@@ -19,7 +16,6 @@ import {
   createTestEditionDiscipline,
   createTestDiscipline,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 import { storeDocument } from '../src/catalog/security.utils';
 
 describe('Catalog Module (e2e)', () => {
@@ -63,7 +59,7 @@ describe('Catalog Module (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = MOCK_PASSWORD_HASH;
 
     const superAdmin = await createTestStaff(prisma, {
       email: 'superadmin@example.com',

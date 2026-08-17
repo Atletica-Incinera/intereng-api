@@ -3,7 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import { setupTestEnv } from './test-setup';
+import { setupTestEnv, MOCK_PASSWORD_HASH } from './test-setup';
 import { resetDb } from './db-utils';
 import { PrismaClient, EditionStatus, EditionStaffRoleType } from '@prisma/client';
 import {
@@ -12,7 +12,6 @@ import {
   createTestCompetitionEdition,
   createTestEditionStaffRole,
 } from './factories';
-import * as bcrypt from 'bcryptjs';
 
 describe('Competitions & Editions (e2e)', () => {
   let app: INestApplication<App>;
@@ -55,7 +54,7 @@ describe('Competitions & Editions (e2e)', () => {
     await app.init();
 
     // Setup users
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = MOCK_PASSWORD_HASH;
 
     const superAdmin = await createTestStaff(prisma, {
       email: 'superadmin@example.com',

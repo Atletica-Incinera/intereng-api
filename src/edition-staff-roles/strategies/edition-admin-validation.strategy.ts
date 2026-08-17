@@ -3,6 +3,10 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEditionStaffRoleDto } from '../dto/create-edition-staff-role.dto';
 import { RoleValidationStrategy } from './role-validation-strategy.interface';
 
+/**
+ * Strategy to validate EDITION_ADMIN role assignments.
+ * Enforces that no discipline is associated with an EDITION_ADMIN role.
+ */
 export class EditionAdminValidationStrategy implements RoleValidationStrategy {
   validate(
     _editionId: string,

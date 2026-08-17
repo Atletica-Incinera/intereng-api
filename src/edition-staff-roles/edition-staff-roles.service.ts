@@ -13,6 +13,19 @@ import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { EditionStaffRoleType } from '@prisma/client';
 import { ROLE_VALIDATION_STRATEGIES } from './strategies';
 
+/**
+ * Interface defining the contract for role validation strategies.
+ * Implementations must provide a `validate` method that returns the associated
+ * `editionDisciplineId` (or null) after performing necessary checks.
+ *
+ * @interface RoleValidationStrategy
+ */
+/**
+ * @class EditionStaffRolesService
+ * @description Service responsible for managing staff role assignments within competition editions.
+ * Provides methods to list, create, and delete staff roles while enforcing business rules,
+ * authorization checks, and relational integrity.
+ */
 @Injectable()
 export class EditionStaffRolesService {
   private static readonly STAFF_ROLE_INCLUDE = {
@@ -64,8 +77,12 @@ export class EditionStaffRolesService {
   }
 
   /**
-   * Helper to verify if the actor has privileges to manage a role.
-   * Reduces duplication of SuperAdmin checks (violating DRY).
+   * Checks whether the acting user has sufficient privileges to create or delete a staff role.
+   *
+   * @param role The role being assigned or removed.
+   * @param actor The authenticated user performing the operation.
+   * @param action The action being performed, either 'create' or 'delete'.
+   * @throws ForbiddenException if a non-superadmin attempts to assign or remove an EDITION_ADMIN role.
    */
   private checkPrivileges(
     role: EditionStaffRoleType,

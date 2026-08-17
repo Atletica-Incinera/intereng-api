@@ -1,8 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient, EditionStaffRoleType } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { setupTestEnv } from './test-setup';
@@ -69,7 +67,7 @@ describe('Matches Module (e2e)', () => {
 
     eventEmitter = app.get<EventEmitter2>(EventEmitter2);
 
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = '$2b$10$eDiV7JbTu2Tt5P9TFztR8uj0NVbyt5RRVHf7qCpLi9ztzng8AoUsW';
 
     await createTestStaff(prisma, {
       email: 'superadmin@example.com',

@@ -3,6 +3,10 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEditionStaffRoleDto } from '../dto/create-edition-staff-role.dto';
 import { RoleValidationStrategy } from './role-validation-strategy.interface';
 
+/**
+ * Strategy to validate DISCIPLINE_MANAGER role assignments.
+ * Ensures the provided discipline exists and is associated with the edition.
+ */
 export class DisciplineManagerValidationStrategy implements RoleValidationStrategy {
   async validate(
     editionId: string,
