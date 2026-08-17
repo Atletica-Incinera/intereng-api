@@ -53,6 +53,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
     StandingsModule,
     AuditLogsModule,
     PublicModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [

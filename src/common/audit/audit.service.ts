@@ -14,9 +14,6 @@ export interface AuditRecordInput {
 
 /**
  * Service responsible for recording audit logs for administrative operations.
- *
- * Logs are stored in the database to maintain a history of modifications,
- * capturing the changes, the actor, and the target entity.
  */
 @Injectable()
 export class AuditService {
@@ -24,19 +21,6 @@ export class AuditService {
 
   /**
    * Records a new audit log entry in the database.
-   *
-   * This method saves details about changes made to an entity, including the
-   * identity of the staff member who made the change, the edition ID of the
-   * competition (if applicable), the action type, entity details, and the
-   * state before and after the modification.
-   *
-   * It can optionally run within an existing Prisma transaction context to guarantee
-   * transactional consistency (all-or-nothing rollback).
-   *
-   * @param data - The audit log entry details (staff ID, action, before/after data, etc.)
-   * @param tx - Optional Prisma transaction client. If provided, the audit log will be created
-   *             within the transaction context.
-   * @returns A promise that resolves to the created AuditLog entity.
    */
   async record(data: AuditRecordInput, tx?: Prisma.TransactionClient) {
     const client = tx || this.prisma;
@@ -56,6 +40,19 @@ export class AuditService {
             ? (data.after as Prisma.InputJsonValue)
             : Prisma.DbNull,
       },
+    });
+  }
+
+  async findByEdition(editionId: string) {
+    return this.prisma.auditLog.findMany({
+      where: { editionId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findAll() {
+    return this.prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
     });
   }
 }
