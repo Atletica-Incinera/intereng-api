@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import { IHashService } from './interfaces/hash-service.interface';
 import { ITokenService } from './interfaces/token-service.interface';
 import {
+  ActiveEditionRoleResponse,
   AuthUserResponse,
   FrontendRole,
   IssuedAuthSession,
@@ -34,6 +35,7 @@ const ACTIVE_AUTH_STAFF_SELECT = {
     },
     orderBy: { createdAt: 'asc' },
     select: {
+      id: true,
       editionId: true,
       role: true,
       edition: {
@@ -41,6 +43,7 @@ const ACTIVE_AUTH_STAFF_SELECT = {
       },
       editionDiscipline: {
         select: {
+          id: true,
           disciplineId: true,
           discipline: {
             select: {
@@ -145,18 +148,7 @@ export class AuthService {
       throw new UnauthorizedException('Usuário não encontrado.');
     }
 
-    const identity = this.resolveIdentity(staff);
-
-    return {
-      ...identity.user,
-      editionRoles: staff.editionRoles.map((role) => ({
-        editionId: role.editionId,
-        editionName: role.edition.name,
-        disciplineId: role.editionDiscipline?.disciplineId ?? null,
-        disciplineName: role.editionDiscipline?.discipline.name ?? null,
-        role: role.role,
-      })),
-    };
+    return this.resolveIdentity(staff).user;
   }
 
   verifyAccessToken(token: string): JwtPayload {
@@ -177,9 +169,11 @@ export class AuthService {
   }
 
   private resolveIdentity(staff: StaffWithActiveRoles): AuthIdentity {
+    const editionRoles = this.mapEditionRoles(staff);
+
     if (staff.isSuperAdmin) {
       return {
-        user: this.mapUser(staff, 'SUPER_ADMIN'),
+        user: this.mapUser(staff, 'SUPER_ADMIN', editionRoles),
         isSuperAdmin: true,
         activeEditionId: null,
       };
@@ -190,26 +184,29 @@ export class AuthService {
     );
     if (editionAdminRole) {
       return {
-        user: this.mapUser(staff, 'EDITION_ADMIN'),
+        user: this.mapUser(staff, 'EDITION_ADMIN', editionRoles),
         isSuperAdmin: false,
         activeEditionId: editionAdminRole.editionId,
       };
     }
 
-    const disciplineManagerRole = staff.editionRoles.find(
+    const disciplineManagerRoles = staff.editionRoles.filter(
       (role) =>
         role.role === EditionStaffRoleType.DISCIPLINE_MANAGER &&
         role.editionDiscipline?.discipline.name,
     );
-    if (disciplineManagerRole?.editionDiscipline) {
+    if (disciplineManagerRoles.length) {
+      const singleRole = disciplineManagerRoles.length === 1 ? disciplineManagerRoles[0] : null;
+      const activeEditionIds = new Set(disciplineManagerRoles.map((role) => role.editionId));
       return {
         user: this.mapUser(
           staff,
           'DISCIPLINE_MANAGER',
-          disciplineManagerRole.editionDiscipline.discipline.name,
+          editionRoles,
+          singleRole?.editionDiscipline?.discipline.name,
         ),
         isSuperAdmin: false,
-        activeEditionId: disciplineManagerRole.editionId,
+        activeEditionId: activeEditionIds.size === 1 ? disciplineManagerRoles[0].editionId : null,
       };
     }
 
@@ -219,6 +216,7 @@ export class AuthService {
   private mapUser(
     staff: Pick<StaffWithActiveRoles, 'id' | 'email' | 'name'>,
     role: FrontendRole,
+    editionRoles: ActiveEditionRoleResponse[],
     scope?: string,
   ): AuthUserResponse {
     return {
@@ -226,8 +224,21 @@ export class AuthService {
       email: staff.email,
       name: staff.name,
       role,
+      editionRoles,
       ...(scope ? { scope } : {}),
     };
+  }
+
+  private mapEditionRoles(staff: StaffWithActiveRoles): ActiveEditionRoleResponse[] {
+    return staff.editionRoles.map((role) => ({
+      roleAssignmentId: role.id,
+      editionId: role.editionId,
+      editionName: role.edition.name,
+      editionDisciplineId: role.editionDiscipline?.id ?? null,
+      disciplineId: role.editionDiscipline?.disciplineId ?? null,
+      disciplineName: role.editionDiscipline?.discipline.name ?? null,
+      role: role.role,
+    }));
   }
 
   private issueSession(identity: AuthIdentity): PendingAuthSession {

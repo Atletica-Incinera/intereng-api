@@ -1,5 +1,5 @@
 import { Module, ValidationPipe } from '@nestjs/common';
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
@@ -30,6 +30,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { ConfigModule } from './common/config/config.module';
 import { env } from './common/config/env';
 import { UploadsModule } from './uploads/uploads.module';
+import { LegacyMutationGuard } from './common/guards/legacy-mutation.guard';
 
 @Module({
   imports: [
@@ -66,6 +67,10 @@ import { UploadsModule } from './uploads/uploads.module';
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_GUARD,
+      useClass: LegacyMutationGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,

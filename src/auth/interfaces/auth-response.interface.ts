@@ -1,11 +1,22 @@
 export type FrontendRole = 'SUPER_ADMIN' | 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER';
 
+export interface ActiveEditionRoleResponse {
+  roleAssignmentId: string;
+  editionId: string;
+  editionName: string;
+  editionDisciplineId: string | null;
+  disciplineId: string | null;
+  disciplineName: string | null;
+  role: 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER';
+}
+
 export interface AuthUserResponse {
   id: string;
   email: string;
   name: string;
   role: FrontendRole;
   scope?: string;
+  editionRoles: ActiveEditionRoleResponse[];
 }
 
 export interface AuthResponse {
@@ -14,17 +25,7 @@ export interface AuthResponse {
   user: AuthUserResponse;
 }
 
-export interface ActiveEditionRoleResponse {
-  editionId: string;
-  editionName: string;
-  disciplineId: string | null;
-  disciplineName: string | null;
-  role: 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER';
-}
-
-export interface MeResponse extends AuthUserResponse {
-  editionRoles: ActiveEditionRoleResponse[];
-}
+export type MeResponse = AuthUserResponse;
 
 export interface IssuedAuthSession {
   auth: AuthResponse;

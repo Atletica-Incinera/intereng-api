@@ -17,6 +17,7 @@ import {
   SnapshotEnvelopeDto,
 } from '../edition-snapshots/dto/frontend-snapshot.dto';
 import { EditionSnapshotsService } from '../edition-snapshots/edition-snapshots.service';
+import type { RequestedEditionRole } from '../edition-snapshots/edition-request-headers';
 import { SnapshotScope } from '../edition-snapshots/snapshot.mapper';
 import { EditionRevisionEvent, RealtimeService } from '../realtime/realtime.service';
 import { actionEmail, actionId, actionObject, actionString } from './action-validation';
@@ -148,10 +149,18 @@ export class EditionActionsService {
     idempotencyKeyHeader: string | undefined,
     action: EditionActionDto,
     user: AuthenticatedUser,
+    requestedRole?: RequestedEditionRole,
+    requestedEditionDisciplineId?: string,
+    operatorDeviceId?: string,
   ): Promise<EditionActionExecutionResult> {
     const actionType = this.actionType(action.type);
     const idempotencyKey = this.idempotencyKey(idempotencyKeyHeader);
-    const requestHash = this.requestHash(action);
+    const requestHash = this.requestHash(
+      action,
+      requestedRole,
+      requestedEditionDisciplineId,
+      operatorDeviceId,
+    );
 
     for (let attempt = 1; attempt <= MAX_SERIALIZABLE_RETRIES; attempt += 1) {
       try {
@@ -184,6 +193,8 @@ export class EditionActionsService {
                 transaction,
                 receiptEdition,
                 user,
+                requestedRole,
+                requestedEditionDisciplineId,
               );
               await this.authorize(
                 transaction,
@@ -211,6 +222,8 @@ export class EditionActionsService {
               transaction,
               edition,
               user,
+              requestedRole,
+              requestedEditionDisciplineId,
             );
             const actor = await transaction.staff.findUnique({
               where: { id: user.id },
@@ -250,6 +263,7 @@ export class EditionActionsService {
               user,
               actorName: actor.name,
               scope,
+              ...(operatorDeviceId ? { operatorDeviceId } : {}),
             };
             const mutation = await this.registry[actionType](context, action.payload, action.audit);
             if (
@@ -298,11 +312,14 @@ export class EditionActionsService {
               transaction,
               revisedEdition,
               user,
+              requestedRole,
+              requestedEditionDisciplineId,
             );
             const snapshot = await this.snapshots.buildPrivateSnapshotInTransaction(
               transaction,
               revisedEdition,
               responseScope,
+              operatorDeviceId,
             );
             const envelope: SnapshotEnvelopeDto = {
               data: snapshot,
@@ -532,11 +549,19 @@ export class EditionActionsService {
     return normalized;
   }
 
-  private requestHash(action: EditionActionDto): string {
+  private requestHash(
+    action: EditionActionDto,
+    role?: RequestedEditionRole,
+    editionDisciplineId?: string,
+    operatorDeviceId?: string,
+  ): string {
     const body = {
       type: action.type,
       payload: action.payload,
       ...(action.audit ? { audit: action.audit } : {}),
+      role: role ?? null,
+      scope: editionDisciplineId ?? null,
+      operatorDeviceId: operatorDeviceId ?? null,
     };
     return createHash('sha256').update(this.canonicalJson(body)).digest('hex');
   }

@@ -48,6 +48,7 @@ export interface EditionActionContext {
   user: AuthenticatedUser;
   actorName: string;
   scope: SnapshotScope;
+  operatorDeviceId?: string;
 }
 
 export interface ActionMutationResult {

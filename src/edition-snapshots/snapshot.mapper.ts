@@ -26,6 +26,7 @@ import {
   MatchScoreSnapshotDto,
   MatchTiebreakSnapshotDto,
   OverallPositionSnapshot,
+  PhaseStandingSnapshotDto,
   StaffSnapshotDto,
   TournamentAdvancementSnapshotDto,
   TournamentPhaseSnapshotDto,
@@ -38,6 +39,7 @@ export type SnapshotScope = { kind: 'full' } | { kind: 'discipline'; editionDisc
 interface SnapshotBuildOptions {
   public: boolean;
   scope: SnapshotScope;
+  operatorDeviceId?: string;
 }
 
 @Injectable()
@@ -262,7 +264,7 @@ export class SnapshotMapper {
     });
 
     const phaseIds = phases.map((item) => item.id);
-    const [groups, matches] = await Promise.all([
+    const [groups, matches, phaseStandings] = await Promise.all([
       transaction.group.findMany({
         where: { phaseId: { in: phaseIds } },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -288,6 +290,7 @@ export class SnapshotMapper {
           startedAt: true,
           startNote: true,
           operatorId: true,
+          operatorDeviceId: true,
           operatorName: true,
           operatorHeartbeat: true,
           tiebreak: true,
@@ -297,6 +300,22 @@ export class SnapshotMapper {
           scheduledAt: true,
           venue: true,
           createdAt: true,
+        },
+      }),
+      transaction.phaseStanding.findMany({
+        where: { phaseId: { in: phaseIds } },
+        orderBy: [{ phaseId: 'asc' }, { rank: 'asc' }, { points: 'desc' }, { entryId: 'asc' }],
+        select: {
+          phaseId: true,
+          entryId: true,
+          played: true,
+          won: true,
+          drawn: true,
+          lost: true,
+          scoreFor: true,
+          scoreAgainst: true,
+          points: true,
+          rank: true,
         },
       }),
     ]);
@@ -361,6 +380,26 @@ export class SnapshotMapper {
     const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
     const phasesById = new Map(phases.map((phase) => [phase.id, phase]));
     const tournamentsById = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
+    const standingsByPhase = new Map<string, PhaseStandingSnapshotDto[]>();
+    for (const standing of phaseStandings) {
+      const entry = entriesById.get(standing.entryId);
+      const entryName = entry ? this.entryName(entry) : undefined;
+      if (!entryName) continue;
+      const mapped = standingsByPhase.get(standing.phaseId) ?? [];
+      mapped.push({
+        entryId: standing.entryId,
+        entryName,
+        played: standing.played,
+        won: standing.won,
+        drawn: standing.drawn,
+        lost: standing.lost,
+        scoreFor: standing.scoreFor,
+        scoreAgainst: standing.scoreAgainst,
+        points: standing.points,
+        rank: standing.rank,
+      });
+      standingsByPhase.set(standing.phaseId, mapped);
+    }
     const groupNamesByPhase = new Map<string, string[]>();
     const groupNameById = new Map<string, string>();
     for (const group of groups) {
@@ -412,10 +451,12 @@ export class SnapshotMapper {
         disciplineById,
         groupNamesByPhase,
         assignmentsByTournament,
+        standingsByPhase,
       ),
       matches: this.mapMatches({
         edition,
         isPublic: options.public,
+        requestOperatorDeviceId: options.operatorDeviceId,
         matches,
         phasesById,
         tournamentsById,
@@ -649,6 +690,7 @@ export class SnapshotMapper {
     disciplineById: Map<string, { discipline: { name: string } }>,
     groupNamesByPhase: Map<string, string[]>,
     assignmentsByTournament: Map<string, Record<string, string>>,
+    standingsByPhase: Map<string, PhaseStandingSnapshotDto[]>,
   ): Record<string, TournamentSnapshotDto> {
     return Object.fromEntries(
       tournaments.map((tournament) => {
@@ -670,6 +712,7 @@ export class SnapshotMapper {
             format: this.mapPhaseType(phase.type),
             groups: groupNamesByPhase.get(phase.id) ?? [],
             qualifiers: this.numberValue(this.asRecord(phase.config)?.qualifiers, 1),
+            standings: standingsByPhase.get(phase.id) ?? [],
           }));
         const seeds = Object.fromEntries(
           namedEntries
@@ -704,6 +747,7 @@ export class SnapshotMapper {
   private mapMatches(input: {
     edition: ResolvedEdition;
     isPublic: boolean;
+    requestOperatorDeviceId?: string;
     matches: Array<{
       id: string;
       phaseId: string;
@@ -721,6 +765,7 @@ export class SnapshotMapper {
       startedAt: Date | null;
       startNote: string | null;
       operatorId: string | null;
+      operatorDeviceId: string | null;
       operatorName: string | null;
       operatorHeartbeat: Date | null;
       tiebreak: Prisma.JsonValue | null;
@@ -817,7 +862,14 @@ export class SnapshotMapper {
           events: input.matchEvents
             .filter((event) => event.matchId === match.id)
             .map((event) => this.mapMatchEvent(event)),
-          ...(!input.isPublic && match.operatorId ? { operatorId: match.operatorId } : {}),
+          ...(!input.isPublic && match.operatorId
+            ? {
+                operatorId:
+                  match.operatorDeviceId && match.operatorDeviceId === input.requestOperatorDeviceId
+                    ? match.operatorDeviceId
+                    : '__occupied__',
+              }
+            : {}),
           ...(!input.isPublic && match.operatorName ? { operatorName: match.operatorName } : {}),
           ...(!input.isPublic && match.operatorHeartbeat
             ? { operatorHeartbeat: match.operatorHeartbeat.toISOString() }
@@ -850,6 +902,7 @@ export class SnapshotMapper {
       where: { editionId: edition.id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
+        id: true,
         role: true,
         revokedAt: true,
         staff: { select: { name: true, email: true } },
@@ -861,7 +914,8 @@ export class SnapshotMapper {
 
     const staff: Record<string, StaffSnapshotDto> = {};
     for (const assignment of roles) {
-      staff[assignment.staff.email] = {
+      staff[assignment.id] = {
+        roleAssignmentId: assignment.id,
         name: assignment.staff.name,
         email: assignment.staff.email,
         initials: this.initials(assignment.staff.name),

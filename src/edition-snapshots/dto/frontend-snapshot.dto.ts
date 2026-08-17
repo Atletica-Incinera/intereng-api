@@ -64,12 +64,26 @@ export interface DisciplineSnapshotDto {
   startedAt?: string;
 }
 
+export interface PhaseStandingSnapshotDto {
+  entryId: string;
+  entryName: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  scoreFor: number;
+  scoreAgainst: number;
+  points: number;
+  rank: number | null;
+}
+
 export interface TournamentPhaseSnapshotDto {
   id: string;
   name: string;
   format: 'Grupos' | 'Mata-mata' | 'Liga';
   groups: string[];
   qualifiers: number;
+  standings: PhaseStandingSnapshotDto[];
 }
 
 export interface TournamentAdvancementSnapshotDto {
@@ -210,6 +224,7 @@ export interface OverallClosureSnapshotDto {
 }
 
 export interface StaffSnapshotDto {
+  roleAssignmentId: string;
   name: string;
   email: string;
   initials: string;

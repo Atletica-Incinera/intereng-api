@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -34,7 +35,15 @@ const EDITION_FIELDS = [
   'active',
   'competitionId',
 ] as const;
-const STAFF_FIELDS = ['name', 'email', 'initials', 'role', 'scope', 'revoked'] as const;
+const STAFF_FIELDS = [
+  'roleAssignmentId',
+  'name',
+  'email',
+  'initials',
+  'role',
+  'scope',
+  'revoked',
+] as const;
 
 @Injectable()
 export class ContextActionHandler {
@@ -348,6 +357,10 @@ export class ContextActionHandler {
       throw new ConflictException('O e-mail do membro deve ser igual à chave informada.');
     }
     const name = actionString(member, 'name', 'O nome do membro', { min: 2, max: 160 });
+    const roleAssignmentId =
+      member.roleAssignmentId === undefined
+        ? undefined
+        : actionId(member, 'roleAssignmentId', 'O ID da atribuição do membro');
     const role = actionEnum(member, 'role', 'O papel do membro', [
       'Admin da edição',
       'Gestor de modalidade',
@@ -393,22 +406,79 @@ export class ContextActionHandler {
       await context.transaction.staff.update({ where: { id: staff.id }, data: { name } });
     }
 
-    await context.transaction.editionStaffRole.updateMany({
-      where: { editionId: context.edition.id, staffId: staff.id, revokedAt: null },
-      data: { revokedAt: new Date(), revokedById: context.user.id },
-    });
-    if (!revoked) {
-      await context.transaction.editionStaffRole.create({
-        data: {
-          editionId: context.edition.id,
-          staffId: staff.id,
-          role:
-            role === 'Admin da edição'
-              ? EditionStaffRoleType.EDITION_ADMIN
-              : EditionStaffRoleType.DISCIPLINE_MANAGER,
-          editionDisciplineId,
-        },
-      });
+    const targetRole =
+      role === 'Admin da edição'
+        ? EditionStaffRoleType.EDITION_ADMIN
+        : EditionStaffRoleType.DISCIPLINE_MANAGER;
+    const matchingRoleWhere = {
+      editionId: context.edition.id,
+      staffId: staff.id,
+      role: targetRole,
+      editionDisciplineId,
+      revokedAt: null,
+    };
+
+    if (!roleAssignmentId && revoked) {
+      throw new BadRequestException(
+        'O ID da atribuição do membro é obrigatório para revogar um acesso.',
+      );
+    }
+
+    const previousAssignment = roleAssignmentId
+      ? await context.transaction.editionStaffRole.findFirst({
+          where: {
+            id: roleAssignmentId,
+            editionId: context.edition.id,
+            staffId: staff.id,
+          },
+          select: {
+            id: true,
+            role: true,
+            editionDisciplineId: true,
+            revokedAt: true,
+          },
+        })
+      : null;
+    if (roleAssignmentId && !previousAssignment) {
+      throw new NotFoundException('A atribuição informada não pertence a este membro e edição.');
+    }
+
+    if (revoked && previousAssignment) {
+      if (!previousAssignment.revokedAt) {
+        await context.transaction.editionStaffRole.update({
+          where: { id: previousAssignment.id },
+          data: { revokedAt: new Date(), revokedById: context.user.id },
+        });
+      }
+    } else {
+      const assignmentAlreadyMatches =
+        previousAssignment?.revokedAt === null &&
+        previousAssignment.role === targetRole &&
+        previousAssignment.editionDisciplineId === editionDisciplineId;
+
+      if (previousAssignment && !previousAssignment.revokedAt && !assignmentAlreadyMatches) {
+        await context.transaction.editionStaffRole.update({
+          where: { id: previousAssignment.id },
+          data: { revokedAt: new Date(), revokedById: context.user.id },
+        });
+      }
+
+      const activeRole = assignmentAlreadyMatches
+        ? previousAssignment
+        : await context.transaction.editionStaffRole.findFirst({
+            where: matchingRoleWhere,
+            select: { id: true },
+          });
+      if (!activeRole) {
+        await context.transaction.editionStaffRole.create({
+          data: {
+            editionId: context.edition.id,
+            staffId: staff.id,
+            role: targetRole,
+            editionDisciplineId,
+          },
+        });
+      }
     }
     return {
       entityType: 'Staff',

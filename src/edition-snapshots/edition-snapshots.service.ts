@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { EditionStaffRoleType, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { ActiveEditionResolver, ResolvedEdition } from './active-edition.resolver';
 import { FrontendSnapshotDto, SnapshotResultDto } from './dto/frontend-snapshot.dto';
+import type { RequestedEditionRole } from './edition-request-headers';
 import { SnapshotMapper, SnapshotScope } from './snapshot.mapper';
 
 const PUBLIC_CACHE_VERSION = 'v2';
@@ -27,16 +28,37 @@ export class EditionSnapshotsService {
     private readonly snapshotMapper: SnapshotMapper,
   ) {}
 
-  async getPrivateSnapshot(editionId: string, user: AuthenticatedUser): Promise<SnapshotResultDto> {
+  async getPrivateSnapshot(
+    editionId: string,
+    user: AuthenticatedUser,
+    requestedRole?: RequestedEditionRole,
+    requestedEditionDisciplineId?: string,
+    operatorDeviceId?: string,
+  ): Promise<SnapshotResultDto> {
     return this.prisma.$transaction(async (transaction) => {
       const edition = await this.resolveEditionInTransaction(transaction, editionId);
-      const scope = await this.resolvePrivateScopeInTransaction(transaction, edition, user);
-      const snapshot = await this.buildPrivateSnapshotInTransaction(transaction, edition, scope);
+      const scope = await this.resolvePrivateScopeInTransaction(
+        transaction,
+        edition,
+        user,
+        requestedRole,
+        requestedEditionDisciplineId,
+      );
+      const snapshot = await this.buildPrivateSnapshotInTransaction(
+        transaction,
+        edition,
+        scope,
+        operatorDeviceId,
+      );
 
       return {
         snapshot,
         revision: edition.revision,
-        etag: this.etag(edition, 'private', this.scopeKey(scope, user)),
+        etag: this.etag(
+          edition,
+          'private',
+          `${this.scopeKey(scope, user)}:operator-device:${operatorDeviceId ?? 'none'}`,
+        ),
       };
     }, SNAPSHOT_TRANSACTION_OPTIONS);
   }
@@ -52,16 +74,29 @@ export class EditionSnapshotsService {
     transaction: Prisma.TransactionClient,
     edition: ResolvedEdition,
     user: AuthenticatedUser,
+    requestedRole?: RequestedEditionRole,
+    requestedEditionDisciplineId?: string,
   ): Promise<SnapshotScope> {
-    return this.resolveScope(transaction, edition, user);
+    return this.resolveScope(
+      transaction,
+      edition,
+      user,
+      requestedRole,
+      requestedEditionDisciplineId,
+    );
   }
 
   buildPrivateSnapshotInTransaction(
     transaction: Prisma.TransactionClient,
     edition: ResolvedEdition,
     scope: SnapshotScope,
+    operatorDeviceId?: string,
   ): Promise<FrontendSnapshotDto> {
-    return this.snapshotMapper.build(transaction, edition, { public: false, scope });
+    return this.snapshotMapper.build(transaction, edition, {
+      public: false,
+      scope,
+      operatorDeviceId,
+    });
   }
 
   async getPublicSnapshot(editionId: string): Promise<SnapshotResultDto> {
@@ -102,6 +137,8 @@ export class EditionSnapshotsService {
     transaction: Prisma.TransactionClient,
     edition: ResolvedEdition,
     user: AuthenticatedUser,
+    requestedRole?: RequestedEditionRole,
+    requestedEditionDisciplineId?: string,
   ): Promise<SnapshotScope> {
     if (user.isSuperAdmin) return { kind: 'full' };
 
@@ -122,13 +159,71 @@ export class EditionSnapshotsService {
       },
     });
 
-    if (roles.some((role) => role.role === EditionStaffRoleType.EDITION_ADMIN)) {
+    const hasEditionAdminRole = roles.some(
+      (role) => role.role === EditionStaffRoleType.EDITION_ADMIN,
+    );
+
+    const disciplineManagerRoleIds = [
+      ...new Set(
+        roles
+          .filter(
+            (role) =>
+              role.role === EditionStaffRoleType.DISCIPLINE_MANAGER &&
+              role.editionDisciplineId !== null,
+          )
+          .map((role) => role.editionDisciplineId as string),
+      ),
+    ];
+
+    if (requestedRole === 'EDITION_ADMIN') {
+      if (requestedEditionDisciplineId) {
+        throw new BadRequestException(
+          'O header X-Edition-Discipline-Id não deve ser enviado para o papel EDITION_ADMIN.',
+        );
+      }
+      if (!hasEditionAdminRole) {
+        throw new ForbiddenException(
+          'Seu perfil não possui o papel de administrador nesta edição.',
+        );
+      }
       return { kind: 'full' };
+    }
+
+    if (requestedRole === 'DISCIPLINE_MANAGER') {
+      if (!requestedEditionDisciplineId) {
+        throw new BadRequestException(
+          'O header X-Edition-Discipline-Id é obrigatório para o papel DISCIPLINE_MANAGER.',
+        );
+      }
+      if (!disciplineManagerRoleIds.includes(requestedEditionDisciplineId)) {
+        throw new ForbiddenException(
+          'Seu perfil não possui acesso à modalidade selecionada nesta edição.',
+        );
+      }
+      return {
+        kind: 'discipline',
+        editionDisciplineId: requestedEditionDisciplineId,
+      };
+    }
+
+    if (requestedEditionDisciplineId) {
+      throw new BadRequestException(
+        'O header X-Edition-Role é obrigatório ao selecionar uma modalidade.',
+      );
+    }
+
+    if (hasEditionAdminRole) return { kind: 'full' };
+
+    if (disciplineManagerRoleIds.length > 1) {
+      throw new BadRequestException(
+        'Os headers X-Edition-Role e X-Edition-Discipline-Id são obrigatórios quando o gestor possui mais de uma modalidade.',
+      );
     }
 
     const disciplineManagerRole = roles.find(
       (role) =>
-        role.role === EditionStaffRoleType.DISCIPLINE_MANAGER && role.editionDisciplineId !== null,
+        role.role === EditionStaffRoleType.DISCIPLINE_MANAGER &&
+        role.editionDisciplineId === disciplineManagerRoleIds[0],
     );
     if (disciplineManagerRole?.editionDisciplineId) {
       return {

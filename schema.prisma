@@ -458,6 +458,7 @@ model Match {
 
   operatorId        String?
   operator          Staff?    @relation("MatchOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  operatorDeviceId  String?
   operatorName      String?
   operatorHeartbeat DateTime? @db.Timestamptz(3)
 
@@ -485,7 +486,7 @@ model Match {
   @@index([entryAId])
   @@index([entryBId])
   @@index([winnerEntryId])
-  @@index([operatorId, operatorHeartbeat])
+  @@index([operatorId, operatorDeviceId, operatorHeartbeat])
   @@index([walkoverWinnerEntryId])
   @@map("matches")
 }

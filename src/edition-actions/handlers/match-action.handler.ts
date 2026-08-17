@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { MatchStatus, PhaseType, Prisma } from '@prisma/client';
 import {
   actionArray,
@@ -130,6 +135,7 @@ interface StoredMatchContext {
   venue: string | null;
   lastEventSequence: number;
   operatorId: string | null;
+  operatorDeviceId: string | null;
   operatorHeartbeat: Date | null;
   tiebreak: Prisma.JsonValue | null;
   phase: {
@@ -307,6 +313,18 @@ export class MatchActionHandler {
     const id = actionId(payload, 'id', 'O ID da partida');
     const patch = actionObject(payload.patch, 'A confirmação de início', MATCH_FIELDS);
     const match = await this.matchOrThrow(context, id);
+    const operatorDeviceId = this.requireOperatorDeviceId(context);
+    const requestedOperatorDeviceId = optionalActionString(
+      patch,
+      'operatorId',
+      'O identificador do dispositivo operador',
+      { min: 1, max: 128 },
+    );
+    if (requestedOperatorDeviceId && requestedOperatorDeviceId !== operatorDeviceId) {
+      throw new ConflictException(
+        'O dispositivo informado na partida n\u00e3o corresponde ao dispositivo autenticado.',
+      );
+    }
     if (match.status !== MatchStatus.SCHEDULED && match.status !== MatchStatus.POSTPONED) {
       throw new ConflictException('A partida não pode ser iniciada no status atual.');
     }
@@ -335,7 +353,7 @@ export class MatchActionHandler {
         status: { in: [MatchStatus.SCHEDULED, MatchStatus.POSTPONED] },
         OR: [
           { operatorId: null },
-          { operatorId: context.user.id },
+          { operatorId: context.user.id, operatorDeviceId },
           { operatorHeartbeat: null },
           { operatorHeartbeat: { lt: new Date(startedAt.getTime() - OPERATOR_LOCK_MS) } },
         ],
@@ -348,12 +366,13 @@ export class MatchActionHandler {
         paused: false,
         runningSince: hasClock ? startedAt : null,
         operatorId: context.user.id,
+        operatorDeviceId,
         operatorName: context.actorName,
         operatorHeartbeat: startedAt,
       },
     });
     if (!updated.count) {
-      throw new ConflictException('A partida está sendo operada por outro usuário.');
+      throw new ConflictException('A partida est\u00e1 sendo operada por outro dispositivo.');
     }
     return this.result(match, id);
   }
@@ -369,7 +388,7 @@ export class MatchActionHandler {
     if (match.status !== MatchStatus.LIVE) {
       throw new ConflictException('O cronômetro só pode ser alterado em uma partida Ao vivo.');
     }
-    this.assertOperator(match, context.user.id);
+    this.assertOperator(match, context);
     if (patch.status !== undefined) {
       const status = mapMatchStatus(
         actionEnum(patch, 'status', 'O status da partida', MATCH_STATUS_VALUES),
@@ -507,7 +526,7 @@ export class MatchActionHandler {
     if (match.status !== MatchStatus.LIVE) {
       throw new ConflictException('Eventos só podem ser registrados em uma partida Ao vivo.');
     }
-    this.assertOperator(match, context.user.id);
+    this.assertOperator(match, context);
     const eventId = actionId(event, 'id', 'O ID do evento');
     if (
       await context.transaction.matchEvent.findUnique({
@@ -708,9 +727,16 @@ export class MatchActionHandler {
   ): Promise<ActionMutationResult> {
     actionObject(payload, 'O payload', ['id', 'operatorId', 'operatorName', 'force']);
     const id = actionId(payload, 'id', 'O ID da partida');
-    actionString(payload, 'operatorId', 'O identificador do operador', { min: 1, max: 128 });
     actionString(payload, 'operatorName', 'O nome do operador', { min: 1, max: 160 });
     const force = optionalActionBoolean(payload, 'force', 'A tomada forçada da operação') ?? false;
+    const operatorDeviceId = this.requireOperatorDeviceId(context);
+    const requestedOperatorDeviceId = actionString(
+      payload,
+      'operatorId',
+      'O identificador do dispositivo operador',
+      { min: 1, max: 128 },
+    );
+    this.assertRequestedOperatorDeviceId(requestedOperatorDeviceId, operatorDeviceId);
     const match = await this.matchOrThrow(context, id);
     const staleBefore = new Date(Date.now() - OPERATOR_LOCK_MS);
     const updated = await context.transaction.match.updateMany({
@@ -721,19 +747,21 @@ export class MatchActionHandler {
           : {
               OR: [
                 { operatorId: null },
-                { operatorId: context.user.id },
+                { operatorId: context.user.id, operatorDeviceId },
+                { operatorHeartbeat: null },
                 { operatorHeartbeat: { lt: staleBefore } },
               ],
             }),
       },
       data: {
         operatorId: context.user.id,
+        operatorDeviceId,
         operatorName: context.actorName,
         operatorHeartbeat: new Date(),
       },
     });
     if (!updated.count) {
-      throw new ConflictException('A partida está sendo operada por outro usuário.');
+      throw new ConflictException('A partida est\u00e1 sendo operada por outro dispositivo.');
     }
     return this.result(match, id);
   }
@@ -744,11 +772,24 @@ export class MatchActionHandler {
   ): Promise<ActionMutationResult> {
     actionObject(payload, 'O payload', ['id', 'operatorId']);
     const id = actionId(payload, 'id', 'O ID da partida');
-    actionString(payload, 'operatorId', 'O identificador do operador', { min: 1, max: 128 });
+    const operatorDeviceId = this.requireOperatorDeviceId(context);
+    const requestedOperatorDeviceId = actionString(
+      payload,
+      'operatorId',
+      'O identificador do dispositivo operador',
+      { min: 1, max: 128 },
+    );
+    this.assertRequestedOperatorDeviceId(requestedOperatorDeviceId, operatorDeviceId);
     const match = await this.matchOrThrow(context, id);
+    this.assertOperator(match, context);
     await context.transaction.match.updateMany({
-      where: { id, operatorId: context.user.id },
-      data: { operatorId: null, operatorName: null, operatorHeartbeat: null },
+      where: { id, operatorId: context.user.id, operatorDeviceId },
+      data: {
+        operatorId: null,
+        operatorDeviceId: null,
+        operatorName: null,
+        operatorHeartbeat: null,
+      },
     });
     return this.result(match, id);
   }
@@ -769,7 +810,7 @@ export class MatchActionHandler {
       'currentPeriod',
     ]);
     const match = await this.matchOrThrow(context, id);
-    this.assertOperator(match, context.user.id);
+    this.assertOperator(match, context);
     const event = await context.transaction.matchEvent.findFirst({
       where: { id: eventId, matchId: id, undoneAt: null },
       select: { id: true, sequence: true, previousScore: true },
@@ -818,7 +859,7 @@ export class MatchActionHandler {
     if (match.status !== MatchStatus.LIVE) {
       throw new ConflictException('Somente uma partida Ao vivo pode ser encerrada.');
     }
-    this.assertOperator(match, context.user.id);
+    this.assertOperator(match, context);
     const requestedStatus = mapMatchStatus(
       actionEnum(patch, 'status', 'O status final da partida', MATCH_STATUS_VALUES),
     );
@@ -1224,6 +1265,7 @@ export class MatchActionHandler {
         venue: true,
         lastEventSequence: true,
         operatorId: true,
+        operatorDeviceId: true,
         operatorHeartbeat: true,
         tiebreak: true,
         phase: {
@@ -1327,11 +1369,40 @@ export class MatchActionHandler {
     return transitions[from].includes(to);
   }
 
-  private assertOperator(match: StoredMatchContext, userId: string): void {
-    if (!match.operatorId || match.operatorId === userId) return;
-    const heartbeat = match.operatorHeartbeat?.getTime() ?? 0;
-    if (Date.now() - heartbeat < OPERATOR_LOCK_MS) {
-      throw new ConflictException('A partida está sendo operada por outro usuário.');
+  private assertOperator(match: StoredMatchContext, context: EditionActionContext): void {
+    const operatorDeviceId = this.requireOperatorDeviceId(context);
+    const lockIsFresh = Boolean(
+      match.operatorHeartbeat && match.operatorHeartbeat.getTime() >= Date.now() - OPERATOR_LOCK_MS,
+    );
+    if (
+      lockIsFresh &&
+      match.operatorId === context.user.id &&
+      match.operatorDeviceId === operatorDeviceId
+    ) {
+      return;
+    }
+    if (!lockIsFresh || !match.operatorId || !match.operatorDeviceId) {
+      throw new ConflictException(
+        'A partida não possui uma trava de operador ativa. Assuma a operação antes de continuar.',
+      );
+    }
+    throw new ConflictException('A partida est\u00e1 sendo operada por outro dispositivo.');
+  }
+
+  private requireOperatorDeviceId(context: EditionActionContext): string {
+    if (!context.operatorDeviceId) {
+      throw new BadRequestException(
+        'O identificador do dispositivo operador \u00e9 obrigat\u00f3rio.',
+      );
+    }
+    return context.operatorDeviceId;
+  }
+
+  private assertRequestedOperatorDeviceId(requested: string, authenticated: string): void {
+    if (requested !== authenticated) {
+      throw new ConflictException(
+        'O dispositivo informado na opera\u00e7\u00e3o n\u00e3o corresponde ao dispositivo autenticado.',
+      );
     }
   }
 
