@@ -29,6 +29,7 @@ import { RedisModule } from './common/redis/redis.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { ConfigModule } from './common/config/config.module';
 import { env } from './common/config/env';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { env } from './common/config/env';
     AuditLogsModule,
     EditionSnapshotsModule,
     EditionActionsModule,
+    UploadsModule,
     PublicModule,
   ],
   controllers: [AppController],

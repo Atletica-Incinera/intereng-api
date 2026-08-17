@@ -4,9 +4,10 @@ import { ActiveEditionResolver } from './active-edition.resolver';
 import { EditionSnapshotsController } from './edition-snapshots.controller';
 import { EditionSnapshotsService } from './edition-snapshots.service';
 import { SnapshotMapper } from './snapshot.mapper';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, UploadsModule],
   controllers: [EditionSnapshotsController],
   providers: [ActiveEditionResolver, EditionSnapshotsService, SnapshotMapper],
   exports: [EditionSnapshotsService],

@@ -1,5 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, RosterStatus } from '@prisma/client';
+import { UploadsService } from '../../uploads/uploads.service';
 import {
   actionArray,
   actionEnum,
@@ -36,6 +42,8 @@ const DISCIPLINE_FIELDS = [
 
 @Injectable()
 export class CatalogActionHandler {
+  constructor(private readonly uploads: UploadsService) {}
+
   async disciplineUpdate(
     context: EditionActionContext,
     payload: Record<string, unknown>,
@@ -160,6 +168,11 @@ export class CatalogActionHandler {
       max: 512,
       trim: false,
     });
+    if (logoKey !== undefined) {
+      throw new BadRequestException(
+        'Crie a equipe antes de enviar o logotipo para o armazenamento.',
+      );
+    }
     const archived = optionalActionBoolean(team, 'archived', 'O arquivamento da equipe') ?? false;
 
     if (await context.transaction.team.findUnique({ where: { id }, select: { id: true } })) {
@@ -211,6 +224,7 @@ export class CatalogActionHandler {
       max: 512,
       trim: false,
     });
+    if (logoKey !== undefined) await this.uploads.assertValidTeamLogo(id, logoKey);
     const archived = optionalActionBoolean(patch, 'archived', 'O arquivamento da equipe');
 
     const changesGlobalData =

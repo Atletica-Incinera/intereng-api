@@ -31,6 +31,7 @@ import {
   TournamentPhaseSnapshotDto,
   TournamentSnapshotDto,
 } from './dto/frontend-snapshot.dto';
+import { UploadsService } from '../uploads/uploads.service';
 
 export type SnapshotScope = { kind: 'full' } | { kind: 'discipline'; editionDisciplineId: string };
 
@@ -41,6 +42,8 @@ interface SnapshotBuildOptions {
 
 @Injectable()
 export class SnapshotMapper {
+  constructor(private readonly uploads: UploadsService) {}
+
   async build(
     transaction: Prisma.TransactionClient,
     edition: ResolvedEdition,
@@ -1209,7 +1212,7 @@ export class SnapshotMapper {
   }
 
   private logoPath(fileKey: string): string {
-    return fileKey.startsWith('/') ? fileKey : `/${fileKey}`;
+    return this.uploads.publicUrl(fileKey);
   }
 
   private initials(name: string): string {

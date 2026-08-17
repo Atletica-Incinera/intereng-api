@@ -9,9 +9,11 @@ import { CategoryActionHandler } from './handlers/category-action.handler';
 import { ContextActionHandler } from './handlers/context-action.handler';
 import { MatchActionHandler } from './handlers/match-action.handler';
 import { RankingActionHandler } from './handlers/ranking-action.handler';
+import { UploadsModule } from '../uploads/uploads.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 @Module({
-  imports: [AuthModule, EditionSnapshotsModule],
+  imports: [AuthModule, EditionSnapshotsModule, UploadsModule, RealtimeModule],
   controllers: [EditionActionsController],
   providers: [
     EditionActionsService,

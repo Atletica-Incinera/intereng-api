@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -17,6 +18,7 @@ import {
 } from '../edition-snapshots/dto/frontend-snapshot.dto';
 import { EditionSnapshotsService } from '../edition-snapshots/edition-snapshots.service';
 import { SnapshotScope } from '../edition-snapshots/snapshot.mapper';
+import { EditionRevisionEvent, RealtimeService } from '../realtime/realtime.service';
 import { actionEmail, actionId, actionObject, actionString } from './action-validation';
 import { EditionActionDto } from './dto/edition-action.dto';
 import {
@@ -72,13 +74,20 @@ const CREATED_ACTIONS = new Set<EditionActionType>([
   'edition/create',
 ]);
 
+interface ActionTransactionOutcome {
+  result: EditionActionExecutionResult;
+  revisionEvents: EditionRevisionEvent[];
+}
+
 @Injectable()
 export class EditionActionsService {
+  private readonly logger = new Logger(EditionActionsService.name);
   private readonly registry: EditionActionRegistry;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly snapshots: EditionSnapshotsService,
+    private readonly realtime: RealtimeService,
     matchActions: MatchActionHandler,
     categoryActions: CategoryActionHandler,
     catalogActions: CatalogActionHandler,
@@ -146,170 +155,203 @@ export class EditionActionsService {
 
     for (let attempt = 1; attempt <= MAX_SERIALIZABLE_RETRIES; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async (transaction) => {
-          await this.advisoryLock(transaction, `edition-action:request:${editionId}`);
-          const routeReceipt = await transaction.editionActionReceipt.findFirst({
-            where: {
-              idempotencyKey,
-              responseData: { path: ['_routeEditionId'], equals: editionId },
-            },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            select: { editionId: true, requestHash: true, responseData: true },
-          });
-          if (routeReceipt) {
-            if (routeReceipt.requestHash !== requestHash) {
-              throw new ConflictException(
-                'A chave de idempotência já foi usada com um payload diferente.',
-              );
-            }
-            await this.advisoryLock(
-              transaction,
-              `edition-action:edition:${routeReceipt.editionId}`,
-            );
-            const receiptEdition = await this.snapshots.resolveEditionInTransaction(
-              transaction,
-              routeReceipt.editionId,
-            );
-            const receiptScope = await this.snapshots.resolvePrivateScopeInTransaction(
-              transaction,
-              receiptEdition,
-              user,
-            );
-            await this.authorize(
-              transaction,
-              receiptEdition,
-              receiptScope,
-              user,
-              actionType,
-              action.payload,
-            );
-            return {
-              envelope: this.receiptEnvelope(routeReceipt.responseData, user),
-              statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
-            };
-          }
-
-          const edition = await this.snapshots.resolveEditionInTransaction(transaction, editionId);
-          await this.advisoryLock(transaction, `edition-action:edition:${edition.id}`);
-          const scope = await this.snapshots.resolvePrivateScopeInTransaction(
-            transaction,
-            edition,
-            user,
-          );
-          const actor = await transaction.staff.findUnique({
-            where: { id: user.id },
-            select: { id: true, name: true },
-          });
-          if (!actor) throw new NotFoundException('Usuário autenticado não encontrado.');
-
-          const existingReceipt = await transaction.editionActionReceipt.findUnique({
-            where: {
-              editionId_idempotencyKey: {
-                editionId: edition.id,
+        const outcome: ActionTransactionOutcome = await this.prisma.$transaction(
+          async (transaction) => {
+            await this.advisoryLock(transaction, `edition-action:request:${editionId}`);
+            const routeReceipt = await transaction.editionActionReceipt.findFirst({
+              where: {
                 idempotencyKey,
+                responseData: { path: ['_routeEditionId'], equals: editionId },
               },
-            },
-            select: { requestHash: true, responseData: true },
-          });
-          await this.authorize(transaction, edition, scope, user, actionType, action.payload);
-          if (existingReceipt) {
-            if (existingReceipt.requestHash !== requestHash) {
-              throw new ConflictException(
-                'A chave de idempotência já foi usada com um payload diferente.',
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { editionId: true, requestHash: true, responseData: true },
+            });
+            if (routeReceipt) {
+              if (routeReceipt.requestHash !== requestHash) {
+                throw new ConflictException(
+                  'A chave de idempotência já foi usada com um payload diferente.',
+                );
+              }
+              await this.advisoryLock(
+                transaction,
+                `edition-action:edition:${routeReceipt.editionId}`,
+              );
+              const receiptEdition = await this.snapshots.resolveEditionInTransaction(
+                transaction,
+                routeReceipt.editionId,
+              );
+              const receiptScope = await this.snapshots.resolvePrivateScopeInTransaction(
+                transaction,
+                receiptEdition,
+                user,
+              );
+              await this.authorize(
+                transaction,
+                receiptEdition,
+                receiptScope,
+                user,
+                actionType,
+                action.payload,
+              );
+              return {
+                result: {
+                  envelope: this.receiptEnvelope(routeReceipt.responseData, user),
+                  statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
+                },
+                revisionEvents: [],
+              };
+            }
+
+            const edition = await this.snapshots.resolveEditionInTransaction(
+              transaction,
+              editionId,
+            );
+            await this.advisoryLock(transaction, `edition-action:edition:${edition.id}`);
+            const scope = await this.snapshots.resolvePrivateScopeInTransaction(
+              transaction,
+              edition,
+              user,
+            );
+            const actor = await transaction.staff.findUnique({
+              where: { id: user.id },
+              select: { id: true, name: true },
+            });
+            if (!actor) throw new NotFoundException('Usuário autenticado não encontrado.');
+
+            const existingReceipt = await transaction.editionActionReceipt.findUnique({
+              where: {
+                editionId_idempotencyKey: {
+                  editionId: edition.id,
+                  idempotencyKey,
+                },
+              },
+              select: { requestHash: true, responseData: true },
+            });
+            await this.authorize(transaction, edition, scope, user, actionType, action.payload);
+            if (existingReceipt) {
+              if (existingReceipt.requestHash !== requestHash) {
+                throw new ConflictException(
+                  'A chave de idempotência já foi usada com um payload diferente.',
+                );
+              }
+              const envelope = this.receiptEnvelope(existingReceipt.responseData, user);
+              return {
+                result: {
+                  envelope,
+                  statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
+                },
+                revisionEvents: [],
+              };
+            }
+
+            const context: EditionActionContext = {
+              transaction,
+              edition,
+              user,
+              actorName: actor.name,
+              scope,
+            };
+            const mutation = await this.registry[actionType](context, action.payload, action.audit);
+            if (
+              scope.kind === 'discipline' &&
+              mutation.editionDisciplineId !== scope.editionDisciplineId
+            ) {
+              throw new ForbiddenException(
+                'A ação tentou alterar dados fora da modalidade permitida.',
               );
             }
-            const envelope = this.receiptEnvelope(existingReceipt.responseData, user);
-            return {
-              envelope,
-              statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
-            };
-          }
 
-          const context: EditionActionContext = {
-            transaction,
-            edition,
-            user,
-            actorName: actor.name,
-            scope,
-          };
-          const mutation = await this.registry[actionType](context, action.payload, action.audit);
-          if (
-            scope.kind === 'discipline' &&
-            mutation.editionDisciplineId !== scope.editionDisciplineId
-          ) {
-            throw new ForbiddenException(
-              'A ação tentou alterar dados fora da modalidade permitida.',
-            );
-          }
-
-          const responseEditionId = mutation.responseEditionId ?? edition.id;
-          await transaction.auditLog.create({
-            data: {
-              editionId: responseEditionId,
-              staffId: user.id,
-              action: actionType,
-              entityType: mutation.entityType,
-              entityId: mutation.entityId,
-              ...(action.audit?.before ? { beforeData: action.audit.before } : {}),
-              ...(action.audit?.after ? { afterData: action.audit.after } : {}),
-              ...(action.audit?.reason?.trim() ? { reason: action.audit.reason.trim() } : {}),
-            },
-          });
-
-          const affectedEditionIds = [
-            ...new Set([...(mutation.affectedEditionIds ?? []), responseEditionId]),
-          ].sort();
-          for (const affectedEditionId of affectedEditionIds) {
-            await transaction.competitionEdition.update({
-              where: { id: affectedEditionId },
-              data: { revision: { increment: 1 } },
-              select: { id: true },
+            const responseEditionId = mutation.responseEditionId ?? edition.id;
+            await transaction.auditLog.create({
+              data: {
+                editionId: responseEditionId,
+                staffId: user.id,
+                action: actionType,
+                entityType: mutation.entityType,
+                entityId: mutation.entityId,
+                ...(action.audit?.before ? { beforeData: action.audit.before } : {}),
+                ...(action.audit?.after ? { afterData: action.audit.after } : {}),
+                ...(action.audit?.reason?.trim() ? { reason: action.audit.reason.trim() } : {}),
+              },
             });
-          }
-          const revisedEdition = await this.snapshots.resolveEditionInTransaction(
-            transaction,
-            responseEditionId,
-          );
-          const responseScope = await this.snapshots.resolvePrivateScopeInTransaction(
-            transaction,
-            revisedEdition,
-            user,
-          );
-          const snapshot = await this.snapshots.buildPrivateSnapshotInTransaction(
-            transaction,
-            revisedEdition,
-            responseScope,
-          );
-          const envelope: SnapshotEnvelopeDto = {
-            data: snapshot,
-            meta: { revision: revisedEdition.revision },
-          };
-          await transaction.editionActionReceipt.create({
-            data: {
-              editionId: responseEditionId,
-              idempotencyKey,
-              actionType,
-              requestHash,
-              resultRevision: revisedEdition.revision,
-              responseData: {
-                data: envelope.data,
-                meta: envelope.meta,
-                _actorId: user.id,
-                _routeEditionId: editionId,
-              } as unknown as Prisma.InputJsonValue,
-            },
-          });
-          return {
-            envelope,
-            statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
-          };
-        }, TRANSACTION_OPTIONS);
+
+            const affectedEditionIds = [
+              ...new Set([...(mutation.affectedEditionIds ?? []), responseEditionId]),
+            ].sort();
+            const revisionEvents: EditionRevisionEvent[] = [];
+            for (const affectedEditionId of affectedEditionIds) {
+              const affectedEdition = await transaction.competitionEdition.update({
+                where: { id: affectedEditionId },
+                data: { revision: { increment: 1 } },
+                select: { id: true, revision: true },
+              });
+              revisionEvents.push({
+                editionId: affectedEdition.id,
+                revision: affectedEdition.revision,
+              });
+            }
+            const revisedEdition = await this.snapshots.resolveEditionInTransaction(
+              transaction,
+              responseEditionId,
+            );
+            const responseScope = await this.snapshots.resolvePrivateScopeInTransaction(
+              transaction,
+              revisedEdition,
+              user,
+            );
+            const snapshot = await this.snapshots.buildPrivateSnapshotInTransaction(
+              transaction,
+              revisedEdition,
+              responseScope,
+            );
+            const envelope: SnapshotEnvelopeDto = {
+              data: snapshot,
+              meta: { revision: revisedEdition.revision },
+            };
+            await transaction.editionActionReceipt.create({
+              data: {
+                editionId: responseEditionId,
+                idempotencyKey,
+                actionType,
+                requestHash,
+                resultRevision: revisedEdition.revision,
+                responseData: {
+                  data: envelope.data,
+                  meta: envelope.meta,
+                  _actorId: user.id,
+                  _routeEditionId: editionId,
+                } as unknown as Prisma.InputJsonValue,
+              },
+            });
+            return {
+              result: {
+                envelope,
+                statusCode: CREATED_ACTIONS.has(actionType) ? 201 : 200,
+              },
+              revisionEvents,
+            };
+          },
+          TRANSACTION_OPTIONS,
+        );
+        this.publishCommittedRevisions(outcome.revisionEvents);
+        return outcome.result;
       } catch (error: unknown) {
         if (this.isSerializableConflict(error) && attempt < MAX_SERIALIZABLE_RETRIES) continue;
         throw this.mapPrismaError(error);
       }
     }
     throw new InternalServerErrorException('Não foi possível concluir a ação.');
+  }
+
+  private publishCommittedRevisions(events: readonly EditionRevisionEvent[]): void {
+    for (const event of events) {
+      void this.realtime.publishEditionRevision(event).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'erro desconhecido';
+        this.logger.warn(
+          `A mutação foi confirmada, mas a revisão ${event.revision} da edição ${event.editionId} não foi publicada: ${message}`,
+        );
+      });
+    }
   }
 
   private async authorize(

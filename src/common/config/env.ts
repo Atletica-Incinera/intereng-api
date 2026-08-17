@@ -68,6 +68,44 @@ export const env = {
   get redisUrl(): string {
     return value('REDIS_URL', 'redis://localhost:6379');
   },
+  get s3Endpoint(): string | undefined {
+    return process.env.S3_ENDPOINT?.trim() || undefined;
+  },
+  get s3PresignEndpoint(): string | undefined {
+    return process.env.S3_PRESIGN_ENDPOINT?.trim() || this.s3Endpoint;
+  },
+  get s3Region(): string {
+    return value('S3_REGION', 'us-east-1');
+  },
+  get s3Bucket(): string {
+    return value('S3_BUCKET', 'intereng');
+  },
+  get s3AccessKeyId(): string | undefined {
+    return process.env.S3_ACCESS_KEY_ID?.trim() || undefined;
+  },
+  get s3SecretAccessKey(): string | undefined {
+    return process.env.S3_SECRET_ACCESS_KEY?.trim() || undefined;
+  },
+  get s3ForcePathStyle(): boolean {
+    return booleanValue('S3_FORCE_PATH_STYLE', Boolean(this.s3Endpoint));
+  },
+  get s3PresignTtlSeconds(): number {
+    return positiveInteger('S3_PRESIGN_TTL_SECONDS', 5 * 60);
+  },
+  get s3MaxLogoBytes(): number {
+    return positiveInteger('S3_MAX_LOGO_BYTES', 8 * 1024 * 1024);
+  },
+  get s3PublicBaseUrl(): string {
+    const configured = process.env.S3_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
+    if (configured) return configured;
+    const presignEndpoint =
+      process.env.S3_PRESIGN_ENDPOINT?.trim() || process.env.S3_ENDPOINT?.trim();
+    const bucket = value('S3_BUCKET', 'intereng');
+    if (presignEndpoint) {
+      return `${presignEndpoint.replace(/\/$/, '')}/${encodeURIComponent(bucket)}`;
+    }
+    return `https://${bucket}.s3.${value('S3_REGION', 'us-east-1')}.amazonaws.com`;
+  },
   get corsOrigins(): string[] {
     return value('CORS_ORIGINS', 'http://app.localhost,http://localhost:3001')
       .split(',')
