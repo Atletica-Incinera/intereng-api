@@ -1,0 +1,42 @@
+name: CD Deploy Backend API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Intereng API to CIn VM
+    runs-on: self-hosted
+
+    steps:
+      - name: Deploy Backend
+        run: |
+          PROJECT_DIR="$HOME/intereng-api"
+
+          if [ ! -d "$PROJECT_DIR" ]; then
+            git clone https://github.com/Atletica-Incinera/intereng-api.git "$PROJECT_DIR"
+          fi
+
+          cd "$PROJECT_DIR"
+          git fetch --all
+          git reset --hard origin/main
+
+          # Garante que a rede existe
+          docker network inspect incinera-network >/dev/null 2>&1 || docker network create incinera-network
+
+          echo '${{ secrets.DOTENV_FILE }}' > .env
+
+          # Sobe banco e redis primeiro
+          docker compose up -d postgres redis
+
+          # Executa migrações do Prisma via container temporário
+          docker compose run --rm api npx prisma migrate deploy || true
+
+          # Sobe/atualiza a API
+          docker compose up -d --build --remove-orphans api
+          docker image prune -f
+
+          echo "Deploy da API Intereng finalizado com sucesso!"

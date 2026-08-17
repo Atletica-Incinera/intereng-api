@@ -37,4 +37,4 @@
 - [x] TASK-12 — Real-time (SSE)
 - [x] TASK-13 — Phase Standings
 - [ ] TASK-14 — Audit Logs
-- [ ] TASK-15 — Rotas públicas agregadas
+- [x] TASK-15 — Rotas públicas agregadas
