@@ -3,6 +3,7 @@ import { Phase, Group, GroupEntry } from '@prisma/client';
 export function toPhaseResponseDto(phase: Phase) {
   return {
     id: phase.id,
+    clientId: phase.clientId,
     tournamentId: phase.tournamentId,
     order: phase.order,
     name: phase.name,

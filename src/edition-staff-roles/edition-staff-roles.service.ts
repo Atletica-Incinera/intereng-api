@@ -143,29 +143,36 @@ export class EditionStaffRolesService {
         editionDisciplineId,
         role: dto.role,
       },
+      orderBy: { createdAt: 'desc' },
     });
-    if (existingRole) {
+    if (existingRole && !existingRole.revokedAt) {
       throw new ConflictException(
         `Este membro da equipe já possui o papel "${dto.role}" atribuído nesta modalidade/edição.`,
       );
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const role = await tx.editionStaffRole.create({
-        data: {
-          editionId,
-          staffId: dto.staffId,
-          editionDisciplineId,
-          role: dto.role,
-        },
-        include: EditionStaffRolesService.STAFF_ROLE_INCLUDE,
-      });
+      const role = existingRole
+        ? await tx.editionStaffRole.update({
+            where: { id: existingRole.id },
+            data: { revokedAt: null, revokedById: null },
+            include: EditionStaffRolesService.STAFF_ROLE_INCLUDE,
+          })
+        : await tx.editionStaffRole.create({
+            data: {
+              editionId,
+              staffId: dto.staffId,
+              editionDisciplineId,
+              role: dto.role,
+            },
+            include: EditionStaffRolesService.STAFF_ROLE_INCLUDE,
+          });
 
       await this.audit.record(
         {
           staffId: actor.id,
           editionId,
-          action: 'CREATE',
+          action: existingRole ? 'RESTORE' : 'CREATE',
           entityType: 'EditionStaffRole',
           entityId: role.id,
           before: null,
@@ -207,20 +214,28 @@ export class EditionStaffRolesService {
     // Conditional authorization check (DRY via helper)
     this.checkPrivileges(existingRole.role, actor, 'delete');
 
+    if (existingRole.revokedAt) {
+      return;
+    }
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.editionStaffRole.delete({
+      const revokedRole = await tx.editionStaffRole.update({
         where: { id },
+        data: {
+          revokedAt: new Date(),
+          revokedById: actor.id,
+        },
       });
 
       await this.audit.record(
         {
           staffId: actor.id,
           editionId,
-          action: 'DELETE',
+          action: 'REVOKE',
           entityType: 'EditionStaffRole',
           entityId: id,
           before: existingRole,
-          after: null,
+          after: revokedRole,
         },
         tx,
       );

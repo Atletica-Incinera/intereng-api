@@ -1,10 +1,13 @@
 node_modules
 dist
+coverage
 .git
 .env
 .env.*
+!.env.example
+.codex
+*.log
 npm-debug.log
 .DS_Store
-coverage
 .agent-logs
 .ralph

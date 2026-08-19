@@ -1,12 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, GoneException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../common/audit/audit.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MatchStatus, Prisma } from '@prisma/client';
 import { CreateMatchDto } from './dto/create-match.dto';
 import { UpdateMatchDto } from './dto/update-match.dto';
-import { DomainEvents, MatchFinishedEvent } from '../common/events';
-import { determineWinner, validateDifferentEntries } from './domain/match.domain';
+import { validateDifferentEntries } from './domain/match.domain';
 
 @Injectable()
 export class MatchesService {
@@ -364,74 +363,24 @@ export class MatchesService {
   }
 
   /**
-   * Updates a match's status and triggers appropriate domain events and logic.
+   * Rota legada DESATIVADA. A mudança de status de partida é feita exclusivamente pelo pipeline
+   * canônico `POST /editions/:id/actions` (`match/start`, `match/finish`, ...), que roda dentro de
+   * uma transação Serializable com advisory lock por edição, com retry, e que é o único caminho
+   * que recalcula `phase_standings` via `EditionActionRecalculationService.recomputeTournament`.
    *
-   * @param id - The ID of the match to update.
-   * @param status - The new status of the match.
-   * @param staffId - The ID of the staff member performing the status update.
-   * @returns The updated Match object, including populated entry A and entry B relations.
+   * O `LegacyMutationGuard` (APP_GUARD) já devolve 410 para `PATCH /matches/:id/status`, mas ele é
+   * global e removível. Esta barreira existe no serviço para que, num cutover faseado, a remoção do
+   * guard NÃO ressuscite um escritor de partidas que encerra o jogo sem recalcular a classificação,
+   * sem progredir o mata-mata, sem incrementar `edition.revision` e sem publicar a revisão no SSE.
    *
-   * @throws NotFoundException
-   * This is thrown if the specified match is not found.
+   * NÃO reative este método sem antes fazê-lo delegar ao pipeline canônico de ações (lock por
+   * edição + isolamento Serializable + retry + receipt de idempotência + revisão/SSE).
    *
-   * @remarks
-   * Side Effects / Efeitos Colaterais:
-   * - Executes within a database transaction.
-   * - Records an 'UPDATE_STATUS' audit log for the Match using `AuditService`.
-   * - If the status is being set to FINISHED and the match was not already finished:
-   *   - Determines the winner (`winnerEntryId`) using pure domain scoring rules.
-   *   - Emits the domain event `MATCH_FINISHED` via `EventEmitter2` after the transaction is successfully committed.
+   * @throws GoneException sempre.
    */
-  async updateMatchStatus(id: string, status: MatchStatus, staffId: string) {
-    const match = await this.getMatchWithPhaseRelationsOrThrow(id);
-
-    const editionId = match.phase.tournament.editionDiscipline.editionId;
-
-    // Seta winnerEntryId se o status for alterado para FINISHED
-    let winnerEntryId: string | null = match.winnerEntryId;
-    if (status === MatchStatus.FINISHED) {
-      winnerEntryId = determineWinner(match.scoreA, match.scoreB, match.entryAId, match.entryBId);
-    }
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const res = await tx.match.update({
-        where: { id },
-        data: {
-          status,
-          ...(status === MatchStatus.FINISHED ? { winnerEntryId } : {}),
-        },
-        include: MatchesService.MATCH_RELATIONS_INCLUDE,
-      });
-
-      await this.audit.record(
-        {
-          staffId,
-          editionId,
-          action: 'UPDATE_STATUS',
-          entityType: 'Match',
-          entityId: id,
-          before: match,
-          after: res,
-        },
-        tx,
-      );
-
-      return res;
-    });
-
-    // Emit MATCH_FINISHED event after successful database commit
-    if (status === MatchStatus.FINISHED && match.status !== MatchStatus.FINISHED) {
-      const event = new MatchFinishedEvent(
-        updated.id,
-        updated.phaseId,
-        updated.scoreA,
-        updated.scoreB,
-        updated.winnerEntryId,
-        updated.status,
-      );
-      this.eventEmitter.emit(DomainEvents.MATCH_FINISHED, event);
-    }
-
-    return updated;
+  updateMatchStatus(_id: string, _status: MatchStatus, _staffId: string): Promise<never> {
+    throw new GoneException(
+      'Esta rota de mutação foi descontinuada. Use o endpoint canônico de ações da edição.',
+    );
   }
 }

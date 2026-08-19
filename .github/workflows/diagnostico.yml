@@ -1,0 +1,118 @@
+name: Diagnóstico da VM (somente leitura)
+
+# Roda no runner self-hosted, que vive na mesma máquina da produção, e publica o
+# resultado como artefato. Serve para responder as perguntas de prontidão do
+# cutover sem precisar de acesso SSH à VM.
+#
+# Dispare pela aba Actions -> "Diagnóstico da VM" -> "Run workflow".
+#
+# SOMENTE LEITURA: nenhum passo altera estado. Não roda migration, não reinicia
+# container, não escreve no banco. Nenhum VALOR de variável de ambiente ou
+# segredo é impresso — apenas os NOMES das variáveis presentes.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostico:
+    name: Coletar estado de produção
+    runs-on: self-hosted
+
+    steps:
+      - name: Coletar
+        continue-on-error: true
+        run: |
+          set -u
+          PG=intereng-postgres
+          API=intereng-api
+          DB=competitions
+          DBUSER=postgres
+          OUT=diagnostico.txt
+
+          exec > >(tee "$OUT") 2>&1
+
+          titulo() { printf '\n\n═══ %s ═══\n' "$1"; }
+          psql_q() { docker exec "$PG" psql -U "$DBUSER" -d "$DB" -qAt -c "$1" 2>&1; }
+
+          titulo "0. Contexto"
+          date; echo "host: $(hostname)"; docker --version
+
+          titulo "1. O banco tem as tabelas? (esperado: 18)"
+          psql_q "select count(*) from information_schema.tables where table_schema='public';"
+          psql_q "select table_name from information_schema.tables where table_schema='public' order by 1;"
+
+          titulo "2. DECIDE O B2 — existe histórico de migration?"
+          psql_q "select to_regclass('public._prisma_migrations') is not null;"
+          psql_q "select migration_name, finished_at, rolled_back_at from _prisma_migrations order by started_at;"
+          echo
+          echo "LEITURA: tabela ausente (ou vazia) com as 18 tabelas presentes = banco criado"
+          echo "por 'db push'. Exige baseline antes do primeiro deploy, senão o pipeline trava."
+
+          titulo "3. Partidas sem data marcada"
+          psql_q "select count(*) from matches where \"scheduledAt\" is null;"
+
+          titulo "4. O audit trail já gravou hash de senha?"
+          psql_q "select count(*) from audit_logs where \"afterData\"::text like '%passwordHash%' or \"beforeData\"::text like '%passwordHash%';"
+
+          titulo "5. Qual edição está ativa?"
+          psql_q "select id, name, year, status, \"isActive\", \"startDate\"::date from competition_editions order by \"isActive\" desc, \"startDate\" desc;"
+
+          titulo "6. Atleta em duas equipes na mesma edição? (aborta a 2ª migration)"
+          psql_q "select d.\"editionId\", r.\"athleteId\", count(distinct r.\"teamId\")
+                  from edition_rosters r
+                  join edition_disciplines d on d.id = r.\"editionDisciplineId\"
+                  where r.\"teamId\" is not null
+                  group by 1,2 having count(distinct r.\"teamId\") > 1;"
+
+          titulo "7. DECIDE O B4 — quais variáveis existem (apenas NOMES, nunca valores)"
+          docker exec "$API" printenv 2>/dev/null | cut -d= -f1 | sort \
+            | grep -E 'JWT|STAFF|PII|POSTGRES|REDIS|S3|COOKIE|CORS|DATABASE|NODE_ENV|PORT' \
+            || echo "(container fora do ar — ver item 10)"
+          echo
+          echo "LEITURA: sem STAFF_INVITE_PASSWORD a API não sobe. S3_* precisa estar"
+          echo "completo ou totalmente ausente — pela metade também derruba o boot."
+
+          titulo "8. DECIDE O B7 — quem roteia e o que faz com /intereng-api"
+          echo "--- containers na rede incinera-network ---"
+          docker network inspect incinera-network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>&1
+          echo "--- candidatos a proxy ---"
+          docker ps --format '{{.Names}}\t{{.Image}}' | grep -iE 'nginx|traefik|caddy|proxy|gateway' || echo "(nenhum pelo nome)"
+          for c in $(docker ps --format '{{.Names}}' | grep -iE 'nginx|traefik|caddy|proxy' || true); do
+            echo "### $c"
+            docker exec "$c" sh -c 'cat /etc/nginx/conf.d/*.conf /etc/nginx/nginx.conf 2>/dev/null' 2>/dev/null \
+              | grep -iE 'location|proxy_pass|rewrite|proxy_cookie|server_name|listen' | head -40
+            docker inspect "$c" --format '{{json .Config.Labels}}' 2>/dev/null | tr ',' '\n' | grep -i traefik | head -30
+          done
+          echo
+          echo "LEITURA — as três perguntas que decidem o B7:"
+          echo "  (a) /intereng-api/X vira /api/v1/X, ou é strip puro para /X?"
+          echo "  (b) existe reescrita do Path do cookie (proxy_cookie_path)?"
+          echo "  (c) o host serve HTTPS?"
+
+          titulo "9. CONFIRMA O B1 — a imagem em produção tem as migrations?"
+          docker images --format '{{.Repository}}:{{.Tag}}\t{{.CreatedSince}}' | grep -i intereng || true
+          IMG=$(docker ps --filter "name=$API" --format '{{.Image}}' | head -1)
+          echo "imagem em uso: ${IMG:-(nenhuma)}"
+          [ -n "${IMG:-}" ] && docker run --rm --entrypoint ls "$IMG" -la /app 2>&1 | head -20
+
+          titulo "10. A API está de pé?"
+          docker ps -a --filter "name=$API" --format '{{.Names}}\t{{.Status}}'
+          echo "--- log recente (sem valores de env) ---"
+          docker logs --tail 30 "$API" 2>&1 | tail -30
+
+          titulo "11. Health por dentro do container"
+          docker exec "$API" wget -qO- http://127.0.0.1:3000/api/v1/health 2>&1 || echo "(sem resposta)"
+
+          titulo "12. Tamanho do banco e disco (planejar backup)"
+          docker volume ls | grep -i intereng || true
+          psql_q "select pg_size_pretty(pg_database_size('$DB'));"
+          df -h / 2>/dev/null | tail -2
+
+          titulo "FIM"
+
+      - name: Publicar resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostico-producao
+          path: diagnostico.txt
+          retention-days: 7

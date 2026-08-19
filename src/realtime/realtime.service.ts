@@ -1,170 +1,205 @@
-import { Injectable } from '@nestjs/common';
-import { getStreamKey } from './constants';
-import { Observable } from 'rxjs';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type Redis from 'ioredis';
+import { Observable, map, share } from 'rxjs';
+import { env } from '../common/config/env';
+import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
-import { share } from 'rxjs';
+import { EditionSnapshotsService } from '../edition-snapshots/edition-snapshots.service';
+import { getEditionStreamKey, getStreamKey } from './constants';
 import { RedisStreamSerializer } from './redis-stream-serializer';
 
-/**
- * Service responsible for real‑time SSE streams and propagating match events
- * to Redis streams. It coordinates domain event handling, stream creation,
- * and TTL management while delegating Redis client access to a private
- * helper to keep responsibilities focused.
- */
+const STREAM_READ_COUNT = 100;
+const STREAM_BLOCK_MILLISECONDS = 20_000;
+const EDITION_STREAM_MAX_LENGTH = 1_000;
+const REDIS_EVENT_ID_PATTERN = /^\d+-\d+$/;
+
+export interface EditionRevisionEvent {
+  editionId: string;
+  revision: number;
+}
+
+export interface RedisStreamEvent<T> {
+  id: string;
+  data: T;
+}
+
+export interface EditionStreamContext {
+  routeEditionId: string;
+  streamEditionId: string;
+  editionId: string;
+  revision: number;
+  cursor: string;
+}
+
 @Injectable()
 export class RealtimeService {
-  constructor(private readonly redisService: RedisService) {}
+  private readonly logger = new Logger(RealtimeService.name);
+  private readonly streamTtlSeconds = env.positiveInteger('REDIS_STREAM_TTL', 3_600);
 
-  /**
-   * Parses a flat array of Redis stream fields into a key/value object.
-   * @param fields Array of alternating keys and values.
-   * @returns Record with field names as keys and their values.
-   */
-  private parseFields(fields: string[]): Record<string, any> {
-    return RedisStreamSerializer.deserialize(fields);
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly prisma: PrismaService,
+    private readonly snapshots: EditionSnapshotsService,
+  ) {}
+
+  async prepareEditionStream(
+    editionId: string,
+    lastEventId?: string,
+  ): Promise<EditionStreamContext> {
+    const streamEditionId = editionId === 'active' ? 'active' : editionId;
+    const cursor =
+      this.normalizeLastEventId(lastEventId) ??
+      (await this.latestStreamId(
+        this.redisService.getClient(),
+        getEditionStreamKey(streamEditionId),
+      ));
+    const revision = await this.resolveEditionRevision(editionId);
+    return {
+      routeEditionId: editionId,
+      streamEditionId,
+      editionId: revision.editionId,
+      revision: revision.revision,
+      cursor,
+    };
   }
 
-  /**
-   * Creates an Observable that streams raw match events from the Redis Stream.
-   * It reads past events (if `lastEventId` is provided) and then continuously reads from the
-   * Redis Stream using `XREAD`. The observable is shared among subscribers.
-   *
-   * @param matchId Identifier of the match whose events are streamed.
-   * @param lastEventId Optional ID of the last event the client has received; if omitted the
-   *                    stream starts from the newest entry (`$`).
-   * @returns An {@link Observable} emitting raw Redis stream messages containing id and data.
-   * @throws Propagates any error thrown by the underlying Redis client during reading.
-   */
+  async resolveEditionRevision(editionId: string): Promise<EditionRevisionEvent> {
+    const edition = await this.prisma.$transaction((transaction) =>
+      this.snapshots.resolveEditionInTransaction(transaction, editionId),
+    );
+    return { editionId: edition.id, revision: edition.revision };
+  }
+
+  normalizeLastEventId(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    if (!normalized) return undefined;
+    if (!REDIS_EVENT_ID_PATTERN.test(normalized)) {
+      throw new BadRequestException('O header Last-Event-ID possui um formato inválido.');
+    }
+    return normalized;
+  }
+
+  createEditionStream(
+    editionId: string,
+    lastEventId?: string,
+  ): Observable<RedisStreamEvent<EditionRevisionEvent>> {
+    return this.createRedisStream(
+      getEditionStreamKey(editionId),
+      this.normalizeLastEventId(lastEventId),
+    ).pipe(map((event) => ({ id: event.id, data: this.editionRevisionEvent(event.data) })));
+  }
+
   createStream(
     matchId: string,
     lastEventId?: string,
-  ): Observable<{ id: string; data: Record<string, any> }> {
+  ): Observable<RedisStreamEvent<Record<string, unknown>>> {
+    return this.createRedisStream(getStreamKey(matchId), this.normalizeLastEventId(lastEventId));
+  }
+
+  async publishEditionRevision(event: EditionRevisionEvent): Promise<void> {
+    const streamKeys = [getEditionStreamKey(event.editionId), getEditionStreamKey('active')];
+    const transaction = this.redisService.getClient().multi();
+    for (const streamKey of streamKeys) {
+      transaction
+        .xadd(
+          streamKey,
+          'MAXLEN',
+          '~',
+          EDITION_STREAM_MAX_LENGTH,
+          '*',
+          'editionId',
+          event.editionId,
+          'revision',
+          event.revision,
+        )
+        .expire(streamKey, this.streamTtlSeconds);
+    }
+    const result = await transaction.exec();
+    if (!result) throw new Error('O Redis não confirmou a publicação da revisão.');
+    const failedCommand = result.find(([error]) => error !== null);
+    if (failedCommand?.[0]) throw failedCommand[0];
+  }
+
+  async setStreamTTL(matchId: string, ttlSeconds = this.streamTtlSeconds): Promise<void> {
+    await this.redisService.getClient().expire(getStreamKey(matchId), ttlSeconds);
+  }
+
+  async publishMatchEvent(matchId: string, event: Record<string, unknown>): Promise<void> {
+    const fields = RedisStreamSerializer.serialize(event);
+    await this.redisService.getClient().xadd(getStreamKey(matchId), '*', ...fields);
+  }
+
+  private createRedisStream(
+    streamKey: string,
+    lastEventId?: string,
+  ): Observable<RedisStreamEvent<Record<string, unknown>>> {
     const client = this.redisService.getClient();
-    const streamKey = getStreamKey(matchId);
-    const startId = lastEventId ?? '$';
-    const maxEvents = 6;
-    const observable = new Observable<{ id: string; data: Record<string, any> }>((subscriber) => {
-      let currentId = startId;
-      // Duplicate client to prevent blocking other commands on the shared connection
+    return new Observable<RedisStreamEvent<Record<string, unknown>>>((subscriber) => {
       const blockingClient = client.duplicate();
+      let active = true;
 
-      blockingClient.on('error', (err) => {
-        if (!subscriber.closed) {
-          subscriber.error(err);
-        }
-      });
-
-      const emitMessage = (msgId: string, fields: string[]) => {
-        const data = this.parseFields(fields);
-        subscriber.next({ id: msgId, data });
-        currentId = msgId;
+      const onError = (error: Error) => {
+        if (!subscriber.closed) subscriber.error(error);
       };
+      blockingClient.on('error', onError);
 
-      const readPast = async () => {
-        if (lastEventId && lastEventId !== '$') {
-          // Replay missed events using XRANGE
-          const past = await client.xrange(streamKey, lastEventId, '+');
-          for (const [msgId, fields] of past) {
-            // Skip the very last event if it's identical to lastEventId to avoid duplicate delivery
-            if (msgId === lastEventId) {
-              continue;
-            }
-            emitMessage(msgId, fields);
-          }
-        }
-      };
-
-      const readLoop = async () => {
+      const run = async () => {
         try {
-          const result = await blockingClient.xread(
-            'COUNT',
-            maxEvents,
-            'BLOCK',
-            0,
-            'STREAMS',
-            streamKey,
-            currentId,
-          );
-          if (subscriber.closed) {
-            return;
-          }
-          if (!result) {
-            return readLoop();
-          }
-          const [, messages] = result[0];
-          let sent = 0;
-          for (const [msgId, fields] of messages) {
-            if (sent >= maxEvents) {
-              break;
+          let cursor = lastEventId ?? (await this.latestStreamId(client, streamKey));
+          while (active && !subscriber.closed) {
+            const result = await blockingClient.xread(
+              'COUNT',
+              STREAM_READ_COUNT,
+              'BLOCK',
+              STREAM_BLOCK_MILLISECONDS,
+              'STREAMS',
+              streamKey,
+              cursor,
+            );
+            if (!result) continue;
+            for (const [, messages] of result) {
+              for (const [messageId, fields] of messages) {
+                if (!active || subscriber.closed) return;
+                subscriber.next({
+                  id: messageId,
+                  data: RedisStreamSerializer.deserialize(fields),
+                });
+                cursor = messageId;
+              }
             }
-            emitMessage(msgId, fields);
-            sent++;
           }
-          // Continue reading after a short async tick
-          setTimeout(() => {
-            if (!subscriber.closed) {
-              void readLoop();
-            }
-          }, 0);
-        } catch (err) {
-          if (!subscriber.closed) {
-            subscriber.error(err);
-          }
+        } catch (error: unknown) {
+          if (!subscriber.closed) subscriber.error(error);
         }
       };
+      void run();
 
-      // Initialize flow
-      void (async () => {
-        try {
-          await readPast();
-          if (!subscriber.closed) {
-            void readLoop();
-          }
-        } catch (err) {
-          if (!subscriber.closed) {
-            subscriber.error(err);
-          }
-        }
-      })();
-
-      // Cleanup on unsubscribe
       return () => {
-        // Disconnect the duplicated blocking connection immediately to release resources
+        active = false;
+        blockingClient.removeListener('error', onError);
         blockingClient.disconnect();
       };
     }).pipe(share());
-    return observable;
   }
 
-  /**
-   * Sets an expiration time (TTL) for a match's Redis Stream.
-   * This should be called when the match is finished to allow the stream to be
-   * automatically cleaned up by Redis.
-   *
-   * @param matchId Identifier of the match/stream.
-   * @param ttlSeconds Time‑to‑live in seconds; defaults to the value of
-   *                   `REDIS_STREAM_TTL` env var or 3600 seconds (1 hour).
-   */
-  async setStreamTTL(
-    matchId: string,
-    ttlSeconds: number = Number(process.env.REDIS_STREAM_TTL ?? 3600),
-  ): Promise<void> {
-    const client = this.redisService.getClient();
-    const streamKey = getStreamKey(matchId);
-    await client.expire(streamKey, ttlSeconds);
+  private async latestStreamId(client: Redis, streamKey: string): Promise<string> {
+    const latest = await client.xrevrange(streamKey, '+', '-', 'COUNT', 1);
+    return latest[0]?.[0] ?? '0-0';
   }
 
-  /**
-   * Publishes a match event to the Redis Stream scoped for the given match.
-   * Serializes the event fields before appending it.
-   *
-   * @param matchId Identifier of the match.
-   * @param event The event payload containing details of the match event.
-   */
-  async publishMatchEvent(matchId: string, event: Record<string, any>): Promise<void> {
-    const client = this.redisService.getClient();
-    const streamKey = getStreamKey(matchId);
-    const fields = RedisStreamSerializer.serialize(event);
-    await client.xadd(streamKey, '*', ...fields);
+  private editionRevisionEvent(data: Record<string, unknown>): EditionRevisionEvent {
+    const editionId = data.editionId;
+    const revision = data.revision;
+    if (
+      typeof editionId !== 'string' ||
+      !editionId ||
+      typeof revision !== 'number' ||
+      !Number.isInteger(revision) ||
+      revision < 0
+    ) {
+      this.logger.error('O Redis Stream contém um evento de revisão inválido.');
+      throw new Error('O evento de revisão armazenado é inválido.');
+    }
+    return { editionId, revision };
   }
 }

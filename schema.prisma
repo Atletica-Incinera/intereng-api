@@ -1,7 +1,5 @@
-// ============================================================================
-// SCHEMA — Sistema de Gestão de Competições Esportivas Multi-Evento
-// PostgreSQL 15+ / Prisma
-// ============================================================================
+// Prisma schema - Sistema de Gestão de Competições Esportivas Multi-Evento
+// PostgreSQL 15+
 
 generator client {
   provider = "prisma-client-js"
@@ -11,10 +9,6 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
-// ============================================================================
-// ENUMS
-// ============================================================================
 
 enum EditionStatus {
   PLANNING
@@ -82,43 +76,70 @@ enum EventType {
   OTHER
 }
 
-// ============================================================================
-// GLOBAIS
-// ============================================================================
+enum MatchEventSide {
+  HOME
+  AWAY
+  NEUTRAL
+}
+
+enum OverallPosition {
+  CHAMPION
+  RUNNER_UP
+  THIRD
+  PARTICIPATION
+}
+
+enum OverallAwardOrigin {
+  MANUAL
+  AUTOMATIC
+}
 
 model Competition {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  isActive Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   editions CompetitionEdition[]
 
+  @@index([isActive])
   @@map("competitions")
 }
 
 model CompetitionEdition {
-  id            String        @id @default(cuid())
+  id            String      @id @default(cuid())
   competitionId String
-  competition   Competition   @relation(fields: [competitionId], references: [id], onDelete: Restrict)
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Restrict)
 
   year      Int
   name      String
-  startDate DateTime @db.Timestamptz(3) // [CORREÇÃO 9] Timezone explícito
-  endDate   DateTime @db.Timestamptz(3) // [CORREÇÃO 9] Timezone explícito
+  startDate DateTime      @db.Timestamptz(3)
+  endDate   DateTime      @db.Timestamptz(3)
   status    EditionStatus @default(PLANNING)
+  isActive  Boolean       @default(false)
+  revision  Int           @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  disciplines EditionDiscipline[]
-  staffRoles  EditionStaffRole[]
-  auditLogs   AuditLog[]
+  disciplines     EditionDiscipline[]
+  teams           EditionTeam[]
+  athletes        EditionAthlete[]
+  staffRoles      EditionStaffRole[]
+  refreshSessions RefreshSession[]
+  overallMetrics  OverallMetric[]
+  overallAwards   OverallAward[]
+  overallClosures OverallClosure[]
+  actionReceipts  EditionActionReceipt[]
+  auditLogs       AuditLog[]
 
   @@unique([competitionId, year])
   @@index([competitionId, status])
   @@index([status, startDate])
+  @@index([isActive])
   @@map("competition_editions")
 }
 
@@ -137,80 +158,139 @@ model Discipline {
 }
 
 model Team {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  initials    String?
+  responsible String?
+  logoKey     String?
+  archived    Boolean @default(false)
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  rosters EditionRoster[]
-  entries TournamentEntry[]
+  editionLinks EditionTeam[]
+  rosters      EditionRoster[]
+  entries      TournamentEntry[]
 
+  @@index([archived, name])
   @@map("teams")
 }
 
 model Athlete {
   id        String    @id @default(cuid())
   name      String
-  document  String    @unique
-  birthDate DateTime? @db.Date // [CORREÇÃO 10] Apenas Data
+  document  String?   @unique
+  birthDate DateTime? @db.Date
   email     String?
-  createdAt DateTime  @default(now())
 
-  rosters       EditionRoster[]
-  entries       TournamentEntry[]
-  matchEvents   MatchEvent[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  editionLinks EditionAthlete[]
+  rosters      EditionRoster[]
+  entries      TournamentEntry[]
+  matchEvents  MatchEvent[]
 
   @@index([name])
   @@map("athletes")
 }
 
 model Staff {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String  @unique
   passwordHash String
-  isSuperAdmin Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  isSuperAdmin Boolean @default(false)
+  /// Marca as contas que ainda usam a senha inicial — a de convite ou a do
+  /// bootstrap. Enquanto verdadeira, a sessão só alcança a troca de senha.
+  mustChangePassword Boolean @default(false)
 
-  editionRoles EditionStaffRole[]
-  auditLogs    AuditLog[]
+  createdAt DateTime @default(now())
+
+  editionRoles      EditionStaffRole[] @relation("EditionStaffRoleAssignee")
+  revokedStaffRoles EditionStaffRole[] @relation("EditionStaffRoleRevoker")
+  refreshSessions   RefreshSession[]
+  matchesStarted    Match[]            @relation("MatchStartedBy")
+  matchesOperated   Match[]            @relation("MatchOperator")
+  undoneMatchEvents MatchEvent[]       @relation("MatchEventUndoneBy")
+  matchCorrections  MatchCorrection[]
+  revokedAwards     OverallAward[]     @relation("OverallAwardRevokedBy")
+  closuresCreated   OverallClosure[]   @relation("OverallClosureActor")
+  closuresReopened  OverallClosure[]   @relation("OverallClosureReopenedBy")
+  auditLogs         AuditLog[]
 
   @@map("staff")
 }
 
-// ============================================================================
-// ASSOCIAÇÃO GLOBAL <-> EDIÇÃO
-// ============================================================================
+model EditionTeam {
+  id        String             @id @default(cuid())
+  editionId String
+  edition   CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  teamId    String
+  team      Team               @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  archived  Boolean            @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  athletes EditionAthlete[]
+  awards   OverallAward[]
+
+  @@unique([editionId, teamId])
+  @@index([editionId, archived])
+  @@index([teamId])
+  @@map("edition_teams")
+}
+
+model EditionAthlete {
+  id          String             @id @default(cuid())
+  editionId   String
+  edition     CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  athleteId   String
+  athlete     Athlete            @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+  teamId      String?
+  editionTeam EditionTeam?       @relation(fields: [editionId, teamId], references: [editionId, teamId], onDelete: Restrict)
+  removed     Boolean            @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([editionId, athleteId])
+  @@index([editionId, removed])
+  @@index([athleteId])
+  @@index([editionId, teamId])
+  @@map("edition_athletes")
+}
 
 model EditionDiscipline {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   editionId    String
   edition      CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
   disciplineId String
-  discipline   Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
-
-  config Json?
+  discipline   Discipline         @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  config       Json?
 
   createdAt DateTime @default(now())
 
-  rosters     EditionRoster[]
-  staffRoles  EditionStaffRole[]
-  tournaments Tournament[]
+  rosters       EditionRoster[]
+  staffRoles    EditionStaffRole[]
+  tournaments   Tournament[]
+  overallAwards OverallAward[]
 
   @@unique([editionId, disciplineId])
-  // [CORREÇÃO 7] Índice redundante (editionId) removido
+  @@unique([editionId, id])
   @@map("edition_disciplines")
 }
 
 model EditionRoster {
-  id                  String   @id @default(cuid())
-  // [CORREÇÃO 1] Ref apontando diretamente para EditionDiscipline
+  id                  String            @id @default(cuid())
   editionDisciplineId String
   editionDiscipline   EditionDiscipline @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)
   athleteId           String
-  athlete             Athlete  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
-  teamId              String? 
-  team                Team?    @relation(fields: [teamId], references: [id], onDelete: Restrict) // [CORREÇÃO 5] Restrict ao invés de SetNull
+  athlete             Athlete           @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+  teamId              String?
+  team                Team?             @relation(fields: [teamId], references: [id], onDelete: Restrict)
 
   jerseyNumber Int?
   status       RosterStatus @default(ACTIVE)
@@ -219,45 +299,44 @@ model EditionRoster {
   updatedAt DateTime @updatedAt
 
   @@unique([editionDisciplineId, athleteId])
-  // [CORREÇÃO 7] Índices redundantes removidos
   @@index([teamId])
   @@index([athleteId])
   @@map("edition_rosters")
 }
 
 model EditionStaffRole {
-  id                  String   @id @default(cuid())
-  editionId           String
-  edition             CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
-  staffId             String
-  staff               Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  
-  // [CORREÇÃO 1 e 4] Ref apontando diretamente para EditionDiscipline e com onDelete: Restrict
-  editionDisciplineId String? 
-  editionDiscipline   EditionDiscipline? @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)
+  id        String             @id @default(cuid())
+  editionId String
+  edition   CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff              @relation("EditionStaffRoleAssignee", fields: [staffId], references: [id], onDelete: Cascade)
 
-  role EditionStaffRoleType
+  editionDisciplineId String?
+  editionDiscipline   EditionDiscipline?   @relation(fields: [editionId, editionDisciplineId], references: [editionId, id], onDelete: Restrict)
+  role                EditionStaffRoleType
+
+  revokedAt   DateTime? @db.Timestamptz(3)
+  revokedById String?
+  revokedBy   Staff?    @relation("EditionStaffRoleRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([editionId, staffId, editionDisciplineId, role])
-  // [CORREÇÃO 7] Índice redundante removido
+  @@index([editionId, revokedAt])
+  @@index([editionId, staffId, editionDisciplineId, role, revokedAt])
+  @@index([revokedById])
   @@map("edition_staff_roles")
 }
 
-// ============================================================================
-// ESTRUTURA DE COMPETIÇÃO
-// ============================================================================
-
 model Tournament {
-  id                  String   @id @default(cuid())
-  // [CORREÇÃO 1] Ref apontando diretamente para EditionDiscipline (editionId e disciplineId separados removidos)
+  id                  String            @id @default(cuid())
   editionDisciplineId String
   editionDiscipline   EditionDiscipline @relation(fields: [editionDisciplineId], references: [id], onDelete: Restrict)
 
   name   String
   format TournamentFormat
   status TournamentStatus @default(DRAFT)
+  config Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -271,44 +350,42 @@ model Tournament {
 }
 
 model TournamentEntry {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   tournamentId String
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   teamId       String?
-  team         Team?    @relation(fields: [teamId], references: [id], onDelete: Restrict) // [CORREÇÃO 3] Restrict ao invés de Cascade
+  team         Team?      @relation(fields: [teamId], references: [id], onDelete: Restrict)
   athleteId    String?
-  athlete      Athlete? @relation(fields: [athleteId], references: [id], onDelete: Restrict) // [CORREÇÃO 3] Restrict ao invés de Cascade
-
-  seed Int?
+  athlete      Athlete?   @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+  seed         Int?
 
   createdAt DateTime @default(now())
 
-  groupEntries      GroupEntry[]
-  standings         PhaseStanding[]
-  matchesAsEntryA   Match[]         @relation("MatchEntryA")
-  matchesAsEntryB   Match[]         @relation("MatchEntryB")
-  matchesWon        Match[]         @relation("MatchWinner")
-  matchEvents       MatchEvent[]
+  groupEntries         GroupEntry[]
+  standings            PhaseStanding[]
+  matchesAsEntryA      Match[]         @relation("MatchEntryA")
+  matchesAsEntryB      Match[]         @relation("MatchEntryB")
+  matchesWon           Match[]         @relation("MatchWinner")
+  matchesWonByWalkover Match[]         @relation("MatchWalkoverWinner")
+  matchEvents          MatchEvent[]
 
   @@unique([tournamentId, teamId])
   @@unique([tournamentId, athleteId])
   @@index([tournamentId])
-  @@index([teamId])    // [CORREÇÃO 8] Índice para queries via time
-  @@index([athleteId]) // [CORREÇÃO 8] Índice para queries via atleta
-  // NOTA SQL: ALTER TABLE tournament_entries ADD CONSTRAINT entry_exactly_one CHECK (num_nonnulls(team_id, athlete_id) = 1);
+  @@index([teamId])
+  @@index([athleteId])
   @@map("tournament_entries")
 }
 
 model Phase {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   tournamentId String
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-
-  order Int 
-  name  String 
-  type  PhaseType
-
-  config Json?
+  clientId     String
+  order        Int
+  name         String
+  type         PhaseType
+  config       Json?
 
   createdAt DateTime @default(now())
 
@@ -317,6 +394,7 @@ model Phase {
   standings PhaseStanding[]
 
   @@unique([tournamentId, order])
+  @@unique([tournamentId, clientId])
   @@index([tournamentId])
   @@map("phases")
 }
@@ -325,8 +403,7 @@ model Group {
   id      String @id @default(cuid())
   phaseId String
   phase   Phase  @relation(fields: [phaseId], references: [id], onDelete: Cascade)
-
-  name String
+  name    String
 
   createdAt DateTime @default(now())
 
@@ -339,14 +416,13 @@ model Group {
 }
 
 model GroupEntry {
-  id      String @id @default(cuid())
+  id      String          @id @default(cuid())
   groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group   Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
   entryId String
   entry   TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, entryId])
-  // [CORREÇÃO 7] Índice redundante (groupId) removido
   @@map("group_entries")
 }
 
@@ -357,39 +433,64 @@ model Match {
   groupId String?
   group   Group?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
-  round       Int? 
-  bracketSlot Int? 
+  round       Int?
+  bracketSlot Int?
 
   entryAId String?
   entryA   TournamentEntry? @relation("MatchEntryA", fields: [entryAId], references: [id], onDelete: SetNull)
-  entryBId String? 
+  entryBId String?
   entryB   TournamentEntry? @relation("MatchEntryB", fields: [entryBId], references: [id], onDelete: SetNull)
 
   winnerEntryId String?
   winnerEntry   TournamentEntry? @relation("MatchWinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)
 
-  scoreA Int @default(0)
-  scoreB Int @default(0)
+  scoreA Float @default(0)
+  scoreB Float @default(0)
+
+  currentPeriod Int       @default(1)
+  clockSeconds  Int       @default(0)
+  runningSince  DateTime? @db.Timestamptz(3)
+  paused        Boolean   @default(true)
+  periodScoreA  Int       @default(0)
+  periodScoreB  Int       @default(0)
+
+  startedAt   DateTime? @db.Timestamptz(3)
+  startedById String?
+  startedBy   Staff?    @relation("MatchStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
+  startNote   String?
+
+  operatorId        String?
+  operator          Staff?    @relation("MatchOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  operatorDeviceId  String?
+  operatorName      String?
+  operatorHeartbeat DateTime? @db.Timestamptz(3)
+
+  tiebreak              Json?
+  walkoverWinnerEntryId String?
+  walkoverWinnerEntry   TournamentEntry? @relation("MatchWalkoverWinner", fields: [walkoverWinnerEntryId], references: [id], onDelete: SetNull)
+  reason                String?
 
   lastEventSequence Int @default(0)
 
   status      MatchStatus @default(SCHEDULED)
-  scheduledAt DateTime? @db.Timestamptz(3) // [CORREÇÃO 9] Timezone explícito
+  scheduledAt DateTime?   @db.Timestamptz(3)
   venue       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events MatchEvent[]
+  events        MatchEvent[]
+  periodResults MatchPeriodResult[]
+  corrections   MatchCorrection[]
 
   @@index([status, scheduledAt])
   @@index([phaseId, round])
   @@index([groupId])
-  @@index([entryAId])      // [CORREÇÃO 8]
-  @@index([entryBId])      // [CORREÇÃO 8]
-  @@index([winnerEntryId]) // [CORREÇÃO 8]
-  // [CORREÇÕES 2 E 6 - NOTAS SQL]
-  // ALTER TABLE matches ADD CONSTRAINT winner_is_participant CHECK (winner_entry_id IS NULL OR winner_entry_id IN (entry_a_id, entry_b_id));
+  @@index([entryAId])
+  @@index([entryBId])
+  @@index([winnerEntryId])
+  @@index([operatorId, operatorDeviceId, operatorHeartbeat])
+  @@index([walkoverWinnerEntryId])
   @@map("matches")
 }
 
@@ -398,42 +499,89 @@ model MatchEvent {
   matchId String
   match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
-  entryId String? 
+  entryId String?
   entry   TournamentEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
-  athleteId String? 
+  athleteId String?
   athlete   Athlete? @relation(fields: [athleteId], references: [id], onDelete: SetNull)
 
-  type      EventType
-  metadata  Json?
+  type     EventType
+  metadata Json?
 
-  sequence Int
+  detail               String?
+  side                 MatchEventSide @default(NEUTRAL)
+  elapsedSeconds       Int            @default(0)
+  period               Int?
+  periodElapsedSeconds Int?
+  scoreA               Float?
+  scoreB               Float?
+  points               Int?
+  previousScore        Json?
 
-  occurredAt DateTime @default(now()) @db.Timestamptz(3) // [CORREÇÃO 9] Timezone explícito
+  undoneAt   DateTime? @db.Timestamptz(3)
+  undoneById String?
+  undoneBy   Staff?    @relation("MatchEventUndoneBy", fields: [undoneById], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
+  sequence   Int
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt  DateTime @default(now())
 
   @@unique([matchId, sequence])
   @@index([athleteId])
-  @@index([entryId]) // [CORREÇÃO 8] Índice para queries via Entry no evento
+  @@index([entryId])
+  @@index([matchId, undoneAt])
+  @@index([undoneById])
   @@map("match_events")
 }
 
-model PhaseStanding {
+model MatchPeriodResult {
   id      String @id @default(cuid())
+  matchId String
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  period  Int
+  scoreA  Int
+  scoreB  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([matchId, period])
+  @@map("match_period_results")
+}
+
+model MatchCorrection {
+  id          String  @id @default(cuid())
+  matchId     String
+  match       Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       Staff?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName   String
+  reason      String
+  beforeState Json
+  afterState  Json
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([matchId, createdAt])
+  @@index([actorId])
+  @@map("match_corrections")
+}
+
+model PhaseStanding {
+  id      String          @id @default(cuid())
   phaseId String
-  phase   Phase  @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phase   Phase           @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   entryId String
   entry   TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
-  played       Int @default(0)
-  won          Int @default(0)
-  drawn        Int @default(0)
-  lost         Int @default(0)
-  scoreFor     Int @default(0)
-  scoreAgainst Int @default(0)
-  points       Int @default(0)
-  rank         Int? 
+  played       Int   @default(0)
+  won          Int   @default(0)
+  drawn        Int   @default(0)
+  lost         Int   @default(0)
+  scoreFor     Float @default(0)
+  scoreAgainst Float @default(0)
+  points       Float @default(0)
+  rank         Int?
 
   updatedAt DateTime @updatedAt
 
@@ -442,28 +590,143 @@ model PhaseStanding {
   @@map("phase_standings")
 }
 
-// ============================================================================
-// AUDITORIA
-// ============================================================================
+model OverallMetric {
+  id            String             @id @default(cuid())
+  editionId     String
+  edition       CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  clientId      String
+  name          String
+  defaultPoints Int
+  position      OverallPosition?
+  removedAt     DateTime?          @db.Timestamptz(3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  awards OverallAward[]
+
+  @@unique([editionId, clientId])
+  @@unique([editionId, name])
+  @@index([editionId, removedAt])
+  @@map("overall_metrics")
+}
+
+model OverallAward {
+  id                  String             @id @default(cuid())
+  editionId           String
+  edition             CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  teamId              String
+  editionTeam         EditionTeam        @relation(fields: [editionId, teamId], references: [editionId, teamId], onDelete: Restrict)
+  editionDisciplineId String
+  editionDiscipline   EditionDiscipline  @relation(fields: [editionId, editionDisciplineId], references: [editionId, id], onDelete: Restrict)
+  metricId            String
+  metric              OverallMetric      @relation(fields: [editionId, metricId], references: [editionId, clientId], onDelete: Restrict)
+  points              Int
+  note                String?
+  origin              OverallAwardOrigin @default(MANUAL)
+
+  revokedAt     DateTime? @db.Timestamptz(3)
+  revokedById   String?
+  revokedBy     Staff?    @relation("OverallAwardRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  revokedByName String?
+  revokeReason  String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt
+
+  @@index([editionId, createdAt])
+  @@index([editionId, teamId, revokedAt])
+  @@index([editionId, editionDisciplineId])
+  @@index([editionId, metricId])
+  @@index([revokedById])
+  @@map("overall_awards")
+}
+
+model OverallClosure {
+  id        String             @id @default(cuid())
+  editionId String
+  edition   CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     Staff?             @relation("OverallClosureActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorName String
+  note      String?
+  closedAt  DateTime           @db.Timestamptz(3)
+
+  reopenedAt   DateTime? @db.Timestamptz(3)
+  reopenedById String?
+  reopenedBy   Staff?    @relation("OverallClosureReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+  reopenReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([editionId, reopenedAt])
+  @@index([actorId])
+  @@index([reopenedById])
+  @@map("overall_closures")
+}
+
+model RefreshSession {
+  id        String              @id @default(cuid())
+  tokenHash String              @unique
+  staffId   String
+  staff     Staff               @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  editionId String?
+  edition   CompetitionEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+
+  expiresAt DateTime  @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+
+  rotatedFromId String?         @unique
+  rotatedFrom   RefreshSession? @relation("RefreshSessionRotation", fields: [rotatedFromId], references: [id], onDelete: SetNull)
+  rotatedTo     RefreshSession? @relation("RefreshSessionRotation")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId, revokedAt, expiresAt])
+  @@index([editionId])
+  @@map("refresh_sessions")
+}
+
+model EditionActionReceipt {
+  id             String             @id @default(cuid())
+  editionId      String
+  edition        CompetitionEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  idempotencyKey String
+  actionType     String
+  requestHash    String
+  resultRevision Int
+  responseData   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([editionId, idempotencyKey])
+  @@index([editionId, createdAt])
+  @@index([idempotencyKey, createdAt])
+  @@map("edition_action_receipts")
+}
 
 model AuditLog {
-  id        String   @id @default(cuid())
+  id        String              @id @default(cuid())
   editionId String?
   edition   CompetitionEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
   staffId   String?
-  staff     Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staff     Staff?              @relation(fields: [staffId], references: [id], onDelete: SetNull)
 
-  action     String // [NOTA 11] Validar chaves e tipos de ação em nível de aplicação
-  entityType String 
+  action     String
+  entityType String
   entityId   String
-
   beforeData Json?
   afterData  Json?
+  reason     String?
 
   createdAt DateTime @default(now())
 
   @@index([editionId, createdAt])
+  @@index([editionId, action, createdAt])
   @@index([entityType, entityId])
-  @@index([staffId]) // [CORREÇÃO 8] Facilita varredura de ações de um staff específico
+  @@index([staffId])
   @@map("audit_logs")
 }

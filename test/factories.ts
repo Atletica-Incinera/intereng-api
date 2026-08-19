@@ -378,6 +378,7 @@ export async function createTestPhase(
   return prisma.phase.create({
     data: {
       tournamentId,
+      clientId: overrides?.clientId || getUniqueId(),
       order,
       name,
       type: overrides?.type || 'KNOCKOUT',

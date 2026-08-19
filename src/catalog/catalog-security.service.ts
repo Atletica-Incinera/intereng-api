@@ -26,6 +26,7 @@ export class CatalogSecurityService {
       where: {
         staffId,
         role: EditionStaffRoleType.EDITION_ADMIN,
+        revokedAt: null,
       },
     });
     return !!role;

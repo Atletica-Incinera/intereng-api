@@ -4,7 +4,22 @@ on:
   push:
     branches:
       - main
+    # Mudança de documentação ou de configuração de CI não é motivo para
+    # reconstruir a imagem e reiniciar a API em produção. Sem este filtro,
+    # publicar um workflow novo — o de diagnóstico, por exemplo — derrubaria o
+    # serviço por alguns segundos sem que ninguém tivesse pedido um deploy.
+    # Para deployar mesmo assim, use "Run workflow" na aba Actions.
+    paths-ignore:
+      - '.github/**'
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.dockerignore'
   workflow_dispatch:
+
+env:
+  # Quantos dumps manter na VM. Os mais antigos são descartados a cada deploy.
+  BACKUP_KEEP: "10"
 
 jobs:
   deploy:
@@ -12,9 +27,11 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Deploy Backend
+      - name: Preparar código e ambiente
         run: |
+          set -euo pipefail
           PROJECT_DIR="$HOME/intereng-api"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
           if [ ! -d "$PROJECT_DIR" ]; then
             git clone https://github.com/Atletica-Incinera/intereng-api.git "$PROJECT_DIR"
@@ -24,19 +41,112 @@ jobs:
           git fetch --all
           git reset --hard origin/main
 
-          # Garante que a rede existe
           docker network inspect incinera-network >/dev/null 2>&1 || docker network create incinera-network
 
-          echo '${{ secrets.DOTENV_FILE }}' > .env
+          # Heredoc em vez de `echo '...'`: uma aspa simples dentro do segredo
+          # quebraria o arquivo — ou pior, seria interpretada pelo shell.
+          umask 077
+          cat > .env <<'DOTENV_EOF'
+          ${{ secrets.DOTENV_FILE }}
+          DOTENV_EOF
+          chmod 600 .env
 
-          # Sobe banco e redis primeiro
           docker compose up -d postgres redis
 
-          # Executa migrações do Prisma via container temporário
-          docker compose run --rm api npx prisma migrate deploy || true
+      # ── B3 ────────────────────────────────────────────────────────────────
+      # O banco só existe neste volume. Sem uma cópia verificada antes de
+      # aplicar DDL, qualquer erro de migration é perda definitiva.
+      - name: Backup do banco antes de qualquer alteração
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          BACKUP_DIR="$HOME/intereng-backups"
+          mkdir -p "$BACKUP_DIR"
+          STAMP="$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          DEST="$BACKUP_DIR/competitions-$STAMP.dump"
 
-          # Sobe/atualiza a API
+          # Espera o Postgres aceitar conexão — `up -d` retorna antes disso.
+          # O usuário e o banco vêm do ambiente do próprio container, para não
+          # depender de adivinhar o que está no .env.
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then break; fi
+            [ "$i" = "30" ] && { echo "::error::Postgres não respondeu em 60s"; exit 1; }
+            sleep 2
+          done
+
+          docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$DEST"
+
+          SIZE=$(wc -c < "$DEST")
+          echo "backup: $DEST ($SIZE bytes)"
+          if [ "$SIZE" -lt 1024 ]; then
+            echo "::error::O dump saiu com $SIZE bytes — backup inválido, deploy abortado."
+            exit 1
+          fi
+
+          # O formato -Fc tem cabeçalho próprio: se o arquivo estiver corrompido,
+          # `pg_restore --list` acusa aqui, e não na hora do desespero.
+          docker compose exec -T postgres pg_restore --list > /dev/null < "$DEST"
+          echo "backup verificado: pg_restore consegue lê-lo"
+
+          # Descarta os mais antigos. O `|| true` cobre a primeira execução,
+          # quando ainda não há nada para descartar.
+          ls -1t "$BACKUP_DIR"/competitions-*.dump 2>/dev/null \
+            | tail -n +$(( BACKUP_KEEP + 1 )) \
+            | xargs -r rm -f || true
+          echo "backups na VM: $(ls -1 "$BACKUP_DIR"/competitions-*.dump 2>/dev/null | wc -l)"
+
+      # ── B1 ────────────────────────────────────────────────────────────────
+      # A imagem PRECISA ser construída antes de migrar. `compose run` reutiliza
+      # a imagem existente quando ela já existe, então sem este passo a migration
+      # rodava dentro do artefato do deploy anterior — que não contém as
+      # migrations novas. O Prisma então imprime "No migration found", sai com
+      # código 0, e o deploy segue para subir código novo contra schema velho.
+      - name: Construir a imagem do commit atual
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          docker compose build api
+
+      - name: Aplicar migrations
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          docker compose run --rm --no-deps api npm run prisma:migrate
+
+      # Sai diferente de zero se sobrou migration pendente, falhada ou drift.
+      # É o que pega o "sucesso silencioso" que o passo anterior não pega.
+      - name: Conferir que nenhuma migration ficou pendente
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          docker compose run --rm --no-deps api npx prisma migrate status --schema schema.prisma
+
+      - name: Subir a API
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
           docker compose up -d --build --remove-orphans api
           docker image prune -f
 
-          echo "Deploy da API Intereng finalizado com sucesso!"
+      - name: Verificar que a API respondeu
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          for i in $(seq 1 30); do
+            if docker compose exec -T api wget -qO- http://127.0.0.1:3000/api/v1/health | grep -q '"status":"ok"'; then
+              echo "API saudável."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::A API não respondeu /health em 60s. Últimas linhas do log:"
+          docker compose logs --tail 50 api
+          exit 1
+
+      - name: Falhou — como recuperar
+        if: failure()
+        run: |
+          echo "::notice::O container anterior continua no ar (restart: always), então"
+          echo "::notice::provavelmente não há indisponibilidade. O backup desta execução"
+          echo "::notice::está em \$HOME/intereng-backups e pode ser restaurado com:"
+          echo "::notice::  docker compose exec -T postgres pg_restore -U postgres -d competitions --clean < <arquivo>.dump"

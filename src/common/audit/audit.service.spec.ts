@@ -124,6 +124,7 @@ describe('AuditService', () => {
       const phase = await prisma.phase.create({
         data: {
           tournamentId: tournament.id,
+          clientId: 'audit-phase-1',
           order: 1,
           name: 'Audit Phase 1',
           type: PhaseType.KNOCKOUT,

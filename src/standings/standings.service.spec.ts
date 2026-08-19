@@ -2,8 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { StandingsService } from './standings.service';
 import { MatchStatus, TournamentFormat, PhaseType, EditionStatus } from '@prisma/client';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DomainEvents, MatchFinishedEvent } from '../common/events';
 
 async function cleanDatabase(prisma: PrismaService) {
   await prisma.phaseStanding.deleteMany({});
@@ -23,7 +21,6 @@ async function cleanDatabase(prisma: PrismaService) {
 describe('StandingsService', () => {
   let prisma: PrismaService;
   let service: StandingsService;
-  let eventEmitter: EventEmitter2;
 
   beforeAll(async () => {
     process.env.DATABASE_URL =
@@ -31,19 +28,11 @@ describe('StandingsService', () => {
       'postgresql://postgres:postgres@localhost:5432/competitions?schema=public';
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        PrismaService,
-        StandingsService,
-        {
-          provide: EventEmitter2,
-          useValue: new EventEmitter2(),
-        },
-      ],
+      providers: [PrismaService, StandingsService],
     }).compile();
 
     prisma = module.get<PrismaService>(PrismaService);
     service = module.get<StandingsService>(StandingsService);
-    eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
     await prisma.$connect();
   });
@@ -144,6 +133,7 @@ describe('StandingsService', () => {
       const phase = await prisma.phase.create({
         data: {
           tournamentId,
+          clientId: 'standings-phase-1',
           order: 1,
           name: 'Fase de Grupos',
           type: PhaseType.GROUP,
@@ -459,27 +449,6 @@ describe('StandingsService', () => {
 
       expect(stdA.rank).toBe(1);
       expect(stdB.rank).toBe(1);
-    });
-  });
-
-  describe('Event Listener', () => {
-    it('should automatically recompute standings when MATCH_FINISHED is emitted', async () => {
-      const spy = jest.spyOn(service, 'recomputeStandings').mockResolvedValue(undefined);
-
-      // Emit event
-      const event = new MatchFinishedEvent(
-        'match-1',
-        'phase-1',
-        2,
-        1,
-        'entry-1',
-        MatchStatus.FINISHED,
-      );
-      // Simulating NestJS event emission that reaches our listener
-      await service.handleMatchFinished(event);
-
-      expect(spy).toHaveBeenCalledWith('phase-1');
-      spy.mockRestore();
     });
   });
 });

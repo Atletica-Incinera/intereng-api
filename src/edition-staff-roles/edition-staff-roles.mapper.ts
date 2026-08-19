@@ -33,5 +33,7 @@ export function toStaffRoleResponseDto(role: EditionStaffRoleWithRelations) {
     disciplineId: role.editionDiscipline?.disciplineId ?? null,
     disciplineName: role.editionDiscipline?.discipline?.name ?? null,
     role: role.role,
+    revokedAt: role.revokedAt,
+    revokedById: role.revokedById,
   };
 }

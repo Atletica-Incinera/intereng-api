@@ -33,7 +33,10 @@ export class RealtimeController {
   @Sse(':matchId/stream')
   @Header('Content-Type', 'text/event-stream')
   stream(@Param('matchId') matchId: string, @Req() request: Request): Observable<MessageEvent> {
-    const lastEventId = request.headers['last-event-id'] as string | undefined;
+    const header = request.headers['last-event-id'];
+    const lastEventId = this.realtimeService.normalizeLastEventId(
+      Array.isArray(header) ? header[0] : header,
+    );
 
     const eventStream$ = this.realtimeService.createStream(matchId, lastEventId).pipe(
       map((event) => ({

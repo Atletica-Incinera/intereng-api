@@ -6,11 +6,17 @@ import { BcryptHashService } from './services/bcrypt-hash.service';
 import { JwtTokenService } from './services/jwt-token.service';
 import { IHashService } from './interfaces/hash-service.interface';
 import { ITokenService } from './interfaces/token-service.interface';
+import { AuthCookieService } from './services/auth-cookie.service';
+import { RefreshSessionsService } from './services/refresh-sessions.service';
+import { SuperAdminBootstrapService } from './services/super-admin-bootstrap.service';
 
 @Module({
   controllers: [AuthController],
   providers: [
     AuthService,
+    AuthCookieService,
+    RefreshSessionsService,
+    SuperAdminBootstrapService,
     JwtAuthGuard,
     {
       provide: IHashService,

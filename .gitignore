@@ -2,6 +2,11 @@
 .ralph/
 docs/superpowers/
 
+# Codex local artifacts
+.codex/blueprints/
+.codex/backlog/
+.codex/worktrees/
+
 # NestJS build & dependencies
 node_modules/
 dist/

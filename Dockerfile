@@ -1,36 +1,28 @@
-# Stage 1: Build
-FROM node:22-alpine AS builder
-RUN apk add --no-cache openssl
+FROM node:22-alpine AS dependencies
 WORKDIR /app
-
+RUN apk add --no-cache openssl
 COPY package*.json ./
-COPY tsconfig*.json ./
-COPY schema.prisma ./
-
 RUN npm ci
 
+FROM dependencies AS builder
+WORKDIR /app
+COPY schema.prisma ./schema.prisma
+COPY migrations ./migrations
+COPY prisma ./prisma
+COPY nest-cli.json tsconfig*.json ./
 COPY src ./src
-COPY test ./test
-COPY nest-cli.json ./
-
-RUN npx prisma generate
+RUN npx prisma generate --schema schema.prisma
 RUN npm run build
 
-# Stage 2: Runner
 FROM node:22-alpine AS runner
-RUN apk add --no-cache openssl
 WORKDIR /app
-
 ENV NODE_ENV=production
-ENV PORT=3000
-
-COPY package*.json ./
-COPY schema.prisma ./
-
-RUN npm ci --only=production
-RUN npx prisma generate
-
+RUN apk add --no-cache openssl
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-
+COPY --from=builder /app/schema.prisma ./schema.prisma
+COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/prisma ./prisma
+COPY package*.json ./
 EXPOSE 3000
-CMD ["node", "dist/main"]
+CMD ["npm", "run", "start:prod"]

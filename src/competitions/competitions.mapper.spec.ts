@@ -7,6 +7,7 @@ describe('CompetitionsMapper', () => {
       id: 'comp_123',
       name: 'Jogos de Engenharia',
       slug: 'jogos-de-engenharia',
+      isActive: false,
       createdAt: new Date('2026-08-03T12:00:00Z'),
       updatedAt: new Date('2026-08-03T13:00:00Z'),
     };
@@ -17,6 +18,7 @@ describe('CompetitionsMapper', () => {
       id: 'comp_123',
       name: 'Jogos de Engenharia',
       slug: 'jogos-de-engenharia',
+      isActive: false,
       createdAt: rawCompetition.createdAt,
       updatedAt: rawCompetition.updatedAt,
     });
@@ -31,6 +33,8 @@ describe('CompetitionsMapper', () => {
       startDate: new Date('2026-10-12T00:00:00Z'),
       endDate: new Date('2026-10-19T00:00:00Z'),
       status: EditionStatus.PLANNING,
+      isActive: false,
+      revision: 0,
       createdAt: new Date('2026-08-03T12:00:00Z'),
       updatedAt: new Date('2026-08-03T13:00:00Z'),
     };
@@ -45,6 +49,8 @@ describe('CompetitionsMapper', () => {
       startDate: rawEdition.startDate,
       endDate: rawEdition.endDate,
       status: EditionStatus.PLANNING,
+      isActive: false,
+      revision: 0,
       createdAt: rawEdition.createdAt,
       updatedAt: rawEdition.updatedAt,
     });

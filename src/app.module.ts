@@ -1,5 +1,5 @@
 import { Module, ValidationPipe } from '@nestjs/common';
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
@@ -19,6 +19,8 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { StandingsModule } from './standings/standings.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { PublicModule } from './public/public.module';
+import { EditionSnapshotsModule } from './edition-snapshots/edition-snapshots.module';
+import { EditionActionsModule } from './edition-actions/edition-actions.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestContextModule } from './common/request-context/request-context.module';
@@ -26,6 +28,9 @@ import { pinoLoggerConfig } from './common/logger/logger.config';
 import { RedisModule } from './common/redis/redis.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { ConfigModule } from './common/config/config.module';
+import { env } from './common/config/env';
+import { UploadsModule } from './uploads/uploads.module';
+import { LegacyMutationGuard } from './common/guards/legacy-mutation.guard';
 
 @Module({
   imports: [
@@ -36,7 +41,7 @@ import { ConfigModule } from './common/config/config.module';
     LoggerModule.forRoot(pinoLoggerConfig),
     RedisModule.forRootAsync({
       useFactory: () => ({
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        url: env.redisUrl,
       }),
     }),
 
@@ -54,11 +59,18 @@ import { ConfigModule } from './common/config/config.module';
     RealtimeModule,
     StandingsModule,
     AuditLogsModule,
+    EditionSnapshotsModule,
+    EditionActionsModule,
+    UploadsModule,
     PublicModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_GUARD,
+      useClass: LegacyMutationGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
