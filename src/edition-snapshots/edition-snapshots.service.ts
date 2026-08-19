@@ -286,6 +286,11 @@ export class EditionSnapshotsService {
       this.isRecord(snapshot.matches) &&
       this.isRecord(snapshot.overallRanking) &&
       this.isRecord(snapshot.staff) &&
+      // O cache sobrevive ao deploy: a chave leva a revisão da edição, não a
+      // forma do payload. Sem esta linha, um snapshot gravado antes de
+      // `superAdmins` existir seria devolvido por até uma hora sem o campo que
+      // o DTO promete, e o front quebraria ao iterar sobre ele.
+      Array.isArray(snapshot.superAdmins) &&
       Array.isArray(snapshot.audit) &&
       !Object.prototype.hasOwnProperty.call(snapshot, 'preferences')
     );

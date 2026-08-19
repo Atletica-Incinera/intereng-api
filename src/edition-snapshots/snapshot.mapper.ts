@@ -28,6 +28,7 @@ import {
   OverallPositionSnapshot,
   PhaseStandingSnapshotDto,
   StaffSnapshotDto,
+  SuperAdminSnapshotDto,
   TournamentAdvancementSnapshotDto,
   TournamentPhaseSnapshotDto,
   TournamentSnapshotDto,
@@ -367,14 +368,16 @@ export class SnapshotMapper {
       }),
     ]);
 
-    const [staff, audit] = await Promise.all([
+    const [staffRoles, superAdminAccounts, audit] = await Promise.all([
       options.public || options.scope.kind === 'discipline'
         ? Promise.resolve<Record<string, StaffSnapshotDto>>({})
         : this.loadStaff(transaction, edition),
+      this.loadSuperAdmins(transaction, options),
       options.public || options.scope.kind === 'discipline'
         ? Promise.resolve<AuditSnapshotDto[]>([])
         : this.loadAudit(transaction, edition.id),
     ]);
+    const { staff, superAdmins } = this.mergeSuperAdmins(staffRoles, superAdminAccounts);
 
     const disciplineById = new Map(editionDisciplines.map((item) => [item.id, item]));
     const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
@@ -497,6 +500,7 @@ export class SnapshotMapper {
         })),
       },
       staff,
+      superAdmins,
       audit,
     };
   }
@@ -945,6 +949,64 @@ export class SnapshotMapper {
     return staff;
   }
 
+  /**
+   * Contas com a flag global `Staff.isSuperAdmin`.
+   *
+   * Promover alguém a super admin não cria linha em EditionStaffRole, então
+   * loadStaff — que lê só aquela tabela — não enxerga essas contas. Sem esta
+   * consulta, conceder super admin não muda nada na tela de staff e a ação
+   * parece não ter funcionado.
+   */
+  private async loadSuperAdmins(
+    transaction: Prisma.TransactionClient,
+    options: SnapshotBuildOptions,
+  ): Promise<SuperAdminSnapshotDto[]> {
+    // Mesma guarda de loadStaff: o snapshot público e o recorte por modalidade
+    // não expõem ninguém da organização. Aqui a guarda mora dentro da função
+    // porque a lista sai de uma tabela global, sem filtro por edição para
+    // limitar o estrago caso a chamada escape do lugar certo.
+    if (options.public || options.scope.kind === 'discipline') return [];
+
+    const accounts = await transaction.staff.findMany({
+      where: { isSuperAdmin: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, email: true },
+    });
+
+    return accounts.map((account) => ({
+      id: account.id,
+      name: account.name,
+      email: account.email,
+      initials: this.initials(account.name),
+    }));
+  }
+
+  /**
+   * Casa a flag global com os cards de papel da edição.
+   *
+   * Quem é super admin e também tem papel aqui apareceria duas vezes na tela —
+   * uma pelo card do papel, outra pela lista irmã. Nesse caso o card existente
+   * recebe a marca e a lista não repete a pessoa; a lista fica só para quem não
+   * tem papel nenhum nesta edição e, sem ela, não apareceria em lugar algum.
+   */
+  private mergeSuperAdmins(
+    staff: Record<string, StaffSnapshotDto>,
+    accounts: SuperAdminSnapshotDto[],
+  ): { staff: Record<string, StaffSnapshotDto>; superAdmins: SuperAdminSnapshotDto[] } {
+    const promoted = new Set(accounts.map((account) => this.emailKey(account.email)));
+    const withRole = new Set(Object.values(staff).map((card) => this.emailKey(card.email)));
+
+    return {
+      staff: Object.fromEntries(
+        Object.entries(staff).map(([id, card]) => [
+          id,
+          promoted.has(this.emailKey(card.email)) ? { ...card, superAdmin: true } : card,
+        ]),
+      ),
+      superAdmins: accounts.filter((account) => !withRole.has(this.emailKey(account.email))),
+    };
+  }
+
   private async loadAudit(
     transaction: Prisma.TransactionClient,
     editionId: string,
@@ -1291,6 +1353,13 @@ export class SnapshotMapper {
       .slice(0, 2)
       .map((part) => part.charAt(0).toUpperCase())
       .join('');
+  }
+
+  // O e-mail é o único elo entre a conta e o papel de edição, e as duas linhas
+  // são gravadas por caminhos diferentes: comparar sem normalizar arriscaria
+  // transformar a mesma pessoa em dois cards por uma diferença de caixa.
+  private emailKey(email: string): string {
+    return email.trim().toLowerCase();
   }
 
   private asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -94,15 +94,17 @@ export class RankingActionHandler {
       min: -100_000,
       max: 100_000,
     });
-    const position =
-      patch.position === undefined
-        ? undefined
-        : mapOverallPosition(
-            actionString(patch, 'position', 'A posição da métrica', {
-              min: 1,
-              max: 30,
-            }),
-          );
+    // Os três casos precisam continuar distintos: campo ausente preserva a posição
+    // atual, null volta a métrica para manual e texto grava a nova posição. Sem o
+    // null explícito não existiria caminho para desligar a bonificação automática
+    // do pódio, e a métrica continuaria pontuando sozinha depois de o operador
+    // escolher "Manual" na tela.
+    const rawPosition = optionalActionString(patch, 'position', 'A posição da métrica', {
+      min: 1,
+      max: 30,
+      nullable: true,
+    });
+    const position = rawPosition === null ? null : mapOverallPosition(rawPosition);
 
     await context.transaction.overallMetric.update({
       where: { id: metric.id },

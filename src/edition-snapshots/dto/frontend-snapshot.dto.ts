@@ -231,6 +231,21 @@ export interface StaffSnapshotDto {
   role: 'Admin da edição' | 'Gestor de modalidade';
   scope: string;
   revoked?: boolean;
+  superAdmin?: boolean;
+}
+
+/**
+ * Super administrador sem papel nenhum nesta edição.
+ *
+ * `staff` é derivado de EditionStaffRole e super admin não tem linha lá — a
+ * lista irmã existe para que a conta apareça na tela mesmo assim. Quem também
+ * tem papel na edição fica só no card de `staff`, marcado com `superAdmin`.
+ */
+export interface SuperAdminSnapshotDto {
+  id: string;
+  name: string;
+  email: string;
+  initials: string;
 }
 
 export interface AuditSnapshotDto {
@@ -258,6 +273,7 @@ export interface FrontendSnapshotDto {
     closures: OverallClosureSnapshotDto[];
   };
   staff: Record<string, StaffSnapshotDto>;
+  superAdmins: SuperAdminSnapshotDto[];
   audit: AuditSnapshotDto[];
 }
 
