@@ -1,15 +1,20 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuditService } from '../common/audit/audit.service';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
 import { CreateEditionDto } from './dto/create-edition.dto';
 import { UpdateEditionDto } from './dto/update-edition.dto';
+import { BootstrapCompetitionDto } from './dto/bootstrap-competition.dto';
 import { paginate, PaginatedResult } from '../common/utils/paginate';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { Competition, CompetitionEdition, EditionStatus } from '@prisma/client';
 
 @Injectable()
 export class CompetitionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /**
    * Creates a new Competition.
@@ -20,6 +25,60 @@ export class CompetitionsService {
         name: dto.name,
         slug: dto.slug,
       },
+    });
+  }
+
+  /**
+   * Cria a primeira competição e edição de um sistema vazio, as duas já
+   * ativas — fora do pipeline transacional de `/editions/:id/actions`.
+   *
+   * Esse pipeline resolve a edição "active" antes de rodar qualquer ação,
+   * inclusive `competition/create`: sem nenhuma competição ativa ainda, a
+   * própria ação que criaria a primeira nunca chega a executar. Este método
+   * existe só para essa janela — recusa se qualquer competição já existir,
+   * porque a partir daí "active" resolve e o caminho normal volta a funcionar.
+   */
+  async bootstrap(dto: BootstrapCompetitionDto, staffId: string): Promise<CompetitionEdition> {
+    const startDate = new Date(`${dto.start}T00:00:00.000Z`);
+    const endDate = new Date(`${dto.end}T00:00:00.000Z`);
+    this.validateEditionDates(startDate, endDate);
+
+    return this.prisma.$transaction(async (transaction) => {
+      const existing = await transaction.competition.count();
+      if (existing > 0) {
+        throw new ConflictException(
+          'Já existe ao menos uma competição — use as ações normais para criar as próximas.',
+        );
+      }
+
+      const competition = await transaction.competition.create({
+        data: { name: dto.name, slug: dto.slug, isActive: true },
+      });
+      const edition = await transaction.competitionEdition.create({
+        data: {
+          competitionId: competition.id,
+          year: dto.year,
+          name: String(dto.year),
+          startDate,
+          endDate,
+          status: EditionStatus.PLANNING,
+          isActive: true,
+        },
+      });
+
+      await this.audit.record(
+        {
+          staffId,
+          editionId: edition.id,
+          action: 'competition/bootstrap',
+          entityType: 'Competition',
+          entityId: competition.id,
+          after: { competition: competition.name, edition: edition.year },
+        },
+        transaction,
+      );
+
+      return edition;
     });
   }
 

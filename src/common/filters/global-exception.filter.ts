@@ -14,6 +14,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
 import { Logger } from 'nestjs-pino';
+import { NoActiveEditionException } from '../../edition-snapshots/no-active-edition.exception';
 
 interface NestErrorResponse {
   message?: string | string[];
@@ -30,6 +31,10 @@ const EXCEPTION_CODE_MAP = new Map<ExceptionClass, string>([
   [BadRequestException, 'VALIDATION_ERROR'],
   [UnauthorizedException, 'UNAUTHORIZED'],
   [ForbiddenException, 'FORBIDDEN'],
+  // Antes de NotFoundException: a busca sobe a cadeia de protótipos a partir
+  // da classe exata da exceção, então a entrada mais específica precisa
+  // existir no mapa — não importa a ordem aqui, mas importa que exista.
+  [NoActiveEditionException, 'NO_ACTIVE_EDITION'],
   [NotFoundException, 'NOT_FOUND'],
   [ConflictException, 'CONFLICT'],
   [InternalServerErrorException, 'INTERNAL_ERROR'],

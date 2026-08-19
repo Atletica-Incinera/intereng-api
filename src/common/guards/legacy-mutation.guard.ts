@@ -11,6 +11,11 @@ const CANONICAL_MUTATION_ROUTES: ReadonlyArray<{
   { method: 'POST', path: /^\/auth\/(?:login|refresh|logout|change-password)$/ },
   { method: 'POST', path: /^\/editions\/[^/]+\/actions$/ },
   { method: 'POST', path: /^\/teams\/[^/]+\/logo-upload-url$/ },
+  // Único sobrevivente do CRUD granular de competições, de propósito: o
+  // pipeline de ações não consegue criar a primeira competição de um sistema
+  // vazio (resolve a edição "active" antes de rodar qualquer ação). O resto
+  // de `/competitions` continua bloqueado — 410, como o guard sempre fez.
+  { method: 'POST', path: /^\/competitions\/bootstrap$/ },
 ];
 
 function normalizeRequestPath(request: Request): string {
