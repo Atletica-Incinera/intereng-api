@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { Response } from 'express';
 import { Logger } from 'nestjs-pino';
 import { GlobalExceptionFilter } from './global-exception.filter';
+import { NoActiveEditionException } from '../../edition-snapshots/no-active-edition.exception';
 
 // Exceção customizada herdada de HttpException para testar prototype chain resolution
 class CustomHttpException extends HttpException {
@@ -78,6 +79,19 @@ describe('GlobalExceptionFilter', () => {
         message: 'Recurso nao encontrado',
       },
     });
+  });
+
+  it('should map NoActiveEditionException to 404 NO_ACTIVE_EDITION, not the generic NOT_FOUND', () => {
+    // A busca do código sobe a cadeia de protótipos a partir da classe exata,
+    // e NoActiveEditionException herda de NotFoundException — sem a entrada
+    // própria no mapa, cairia em NOT_FOUND, indistinguível pelo front de
+    // "edição não existe".
+    const exception = new NoActiveEditionException('Não foi possível determinar a competição ativa.');
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(responseStatus).toBe(HttpStatus.NOT_FOUND);
+    expect(responseBody.error.code).toBe('NO_ACTIVE_EDITION');
   });
 
   it('should resolve code using prototype chain for custom exception classes', () => {

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { NoActiveEditionException } from './no-active-edition.exception';
 
 const EDITION_CONTEXT_SELECT = {
   id: true,
@@ -66,7 +67,7 @@ export class ActiveEditionResolver {
     });
 
     if (activeCompetitions.length !== 1) {
-      throw new NotFoundException('Não foi possível determinar a competição ativa.');
+      throw new NoActiveEditionException('Não foi possível determinar a competição ativa.');
     }
 
     const activeEditions = await transaction.competitionEdition.findMany({
@@ -80,7 +81,7 @@ export class ActiveEditionResolver {
     });
 
     if (activeEditions.length !== 1) {
-      throw new NotFoundException('Não foi possível determinar a edição ativa.');
+      throw new NoActiveEditionException('Não foi possível determinar a edição ativa.');
     }
 
     return activeEditions[0];
