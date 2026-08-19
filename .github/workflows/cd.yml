@@ -78,13 +78,18 @@ jobs:
 
           SIZE=$(wc -c < "$DEST")
           echo "backup: $DEST ($SIZE bytes)"
-          if [ "$SIZE" -lt 1024 ]; then
-            echo "::error::O dump saiu com $SIZE bytes — backup inválido, deploy abortado."
+
+          # Um banco recém-criado, antes da primeira migration, gera um dump
+          # válido de poucas centenas de bytes — só o cabeçalho do formato -Fc,
+          # sem tabela nenhuma para descrever. Um limiar de tamanho não distingue
+          # "vazio" de "truncado". Quem distingue é o formato: `pg_restore --list`
+          # só lê um arquivo -Fc estruturalmente íntegro, esteja ele vazio ou não.
+          # Um arquivo de 0 byte (pg_dump não escreveu nada) já falha aqui antes
+          # de chegar à validação de formato.
+          if [ "$SIZE" -eq 0 ]; then
+            echo "::error::O dump saiu com 0 bytes — backup inválido, deploy abortado."
             exit 1
           fi
-
-          # O formato -Fc tem cabeçalho próprio: se o arquivo estiver corrompido,
-          # `pg_restore --list` acusa aqui, e não na hora do desespero.
           docker compose exec -T postgres pg_restore --list > /dev/null < "$DEST"
           echo "backup verificado: pg_restore consegue lê-lo"
 
