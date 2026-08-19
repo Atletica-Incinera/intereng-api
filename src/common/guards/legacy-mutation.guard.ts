@@ -8,7 +8,7 @@ const CANONICAL_MUTATION_ROUTES: ReadonlyArray<{
   method: string;
   path: RegExp;
 }> = [
-  { method: 'POST', path: /^\/auth\/(?:login|refresh|logout)$/ },
+  { method: 'POST', path: /^\/auth\/(?:login|refresh|logout|change-password)$/ },
   { method: 'POST', path: /^\/editions\/[^/]+\/actions$/ },
   { method: 'POST', path: /^\/teams\/[^/]+\/logo-upload-url$/ },
 ];
