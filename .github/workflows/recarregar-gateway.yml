@@ -1,0 +1,52 @@
+name: Recarregar gateway compartilhado (produção)
+
+# `incinera-gateway` é o nginx que roteia /intereng-api — e também
+# pwa-torneios-web e incinera-web, sites que este repositório não possui.
+# Existe aqui, e não num workflow que reinicia o container, por um motivo
+# específico: nginx resolve o hostname de cada upstream (ex.: intereng-api)
+# uma vez e guarda o IP. Quando o container da API é recriado — todo deploy
+# faz isso —, ele recebe um IP novo na rede interna, e o gateway continua
+# tentando o IP antigo até ser recarregado. Foi o que causou 502 logo depois
+# do primeiro deploy real desta integração, em 19/08/2026: a API respondia
+# saudável por dentro, o proxy é que apontava para o container que não existe
+# mais.
+#
+# `nginx -s reload` é a operação padrão do próprio nginx para isto: relê a
+# configuração e reabre as conexões de upstream sem derrubar as existentes.
+# Não reinicia o container, não interrompe pwa-torneios-web nem incinera-web.
+# `nginx -t` testa a configuração antes — se algo estiver errado, recusa sem
+# aplicar nada.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  recarregar:
+    name: Testar e recarregar o nginx do gateway
+    runs-on: self-hosted
+    steps:
+      - name: Conferir que o gateway está no ar
+        run: |
+          set -euo pipefail
+          if ! docker ps --format '{{.Names}}' | grep -qx incinera-gateway; then
+            echo "::error::Container incinera-gateway não está no ar. Nada foi executado."
+            exit 1
+          fi
+
+      - name: Testar a configuração
+        run: docker exec incinera-gateway nginx -t
+
+      - name: Recarregar
+        run: docker exec incinera-gateway nginx -s reload
+
+      - name: Confirmar pelo endereço público
+        run: |
+          set -euo pipefail
+          sleep 2
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            https://incinera.cin.ufpe.br/intereng-api/api/v1/health || echo "000")
+          echo "GET /intereng-api/api/v1/health -> $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Ainda não respondeu 200 depois do reload."
+            exit 1
+          fi
