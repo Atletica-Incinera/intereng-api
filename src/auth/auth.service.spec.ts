@@ -89,6 +89,7 @@ describe('AuthService', () => {
         isSuperAdmin: false,
         editionRoles: [
           {
+            id: 'role-1',
             editionId: 'edition-1',
             role: 'EDITION_ADMIN',
             edition: { name: 'InterEng 2026' },
@@ -114,6 +115,17 @@ describe('AuthService', () => {
         email: staffMock.email,
         name: staffMock.name,
         role: 'EDITION_ADMIN',
+        editionRoles: [
+          {
+            roleAssignmentId: 'role-1',
+            editionId: 'edition-1',
+            editionName: 'InterEng 2026',
+            editionDisciplineId: null,
+            disciplineId: null,
+            disciplineName: null,
+            role: 'EDITION_ADMIN',
+          },
+        ],
       });
       expect(Date.parse(result.auth.expiresAt)).toBeGreaterThan(Date.now());
       expect(mockRefreshSessionsService.create).toHaveBeenCalledWith(

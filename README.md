@@ -68,6 +68,8 @@ npm run start:dev
 
 O `.env.example` aponta PostgreSQL, Redis e MinIO para `localhost`. Ao usar o Compose, os containers recebem os hosts internos automaticamente.
 
+O Redis do Compose exige senha (`REDIS_PASSWORD`), e a `REDIS_URL` do `.env.example` já a inclui. Se você aponta para um Redis próprio sem autenticação, remova o trecho `:senha@` da URL. As portas do PostgreSQL e do Redis são publicadas apenas em `127.0.0.1`: continuam acessíveis da sua máquina, mas não pela rede.
+
 ## Variáveis de ambiente
 
 Obrigatórias para uma implantação real:
@@ -95,7 +97,8 @@ As migrations ficam em `migrations/` e são aplicadas em ordem:
 1. `20260816140000_baseline`;
 2. `20260816160000_integration_contract`;
 3. `20260816220000_phase_client_id`;
-4. `20260816230000_phase5_action_consistency`.
+4. `20260816230000_phase5_action_consistency`;
+5. `20260817120000_operator_device_lock`.
 
 Banco vazio:
 
@@ -128,11 +131,14 @@ Rotas principais:
 | `GET` | `/api/v1/editions/:id/public-snapshot` | snapshot público redigido e cacheável |
 | `POST` | `/api/v1/editions/:id/actions` | executar uma das 32 ações transacionais |
 | `GET` | `/api/v1/editions/:id/stream` | SSE `{ editionId, revision }` |
+| `GET` | `/api/v1/editions/:id/live` | partidas ao vivo da edição, público e cacheado |
+| `GET` | `/api/v1/editions/:id/schedule?date=` | agenda do dia, público e cacheado |
+| `GET` | `/api/v1/tournaments/:id/bracket` | chaveamento da categoria, público e cacheado |
 | `POST` | `/api/v1/teams/:id/logo-upload-url` | assinar POST WebP direto para S3/MinIO |
-| `GET` | `/api/v1/audit-logs` | auditoria global paginada |
-| `GET` | `/api/v1/editions/:id/audit-logs` | auditoria paginada da edição |
 
-`active` pode substituir o ID de edição. Toda mutação exige `Idempotency-Key`; autorização, validação esportiva, escrita, recálculo, auditoria, revisão e recibo pertencem à mesma transação.
+A trilha de auditoria não tem rota própria: ela viaja dentro do snapshot privado, em `audit`, já filtrada pelo escopo de quem pediu. É de lá que a tela de atividade do app lê.
+
+`active` pode substituir o ID de edição em todas as rotas de edição acima. Toda mutação exige `Idempotency-Key`; autorização, validação esportiva, escrita, recálculo, auditoria, revisão e recibo pertencem à mesma transação.
 
 O upload aceita apenas WebP no escopo da equipe, usa checksum SHA-256 e limite exato na policy, valida metadados e magic bytes antes de associar o `fileKey` e remove objetos inválidos.
 
@@ -156,7 +162,9 @@ npm run build
 npm run lint
 ```
 
-Os testes de integração existentes precisam de PostgreSQL e Redis. Sempre defina uma `DATABASE_URL` apontando para um banco descartável antes de executá-los; nunca rode suites com cleanup contra um banco que contenha dados que devam ser preservados.
+Os testes de integração existentes precisam de PostgreSQL e Redis. **A aplicação não lê `.env`** — esse arquivo serve só ao Compose —, então `DATABASE_URL` e `REDIS_URL` precisam estar exportadas no ambiente do shell antes de rodar a suíte. Sem elas o código cai nos padrões (`postgres:postgres@localhost:5432` e `redis://localhost:6379` sem senha), que não correspondem ao Redis do Compose depois que ele passou a exigir autenticação.
+
+Aponte sempre para um banco descartável; nunca rode suites com cleanup contra um banco que contenha dados que devam ser preservados. A suíte roda com `maxWorkers: 1` porque as specs de integração compartilham um único banco e limpam tabelas — em paralelo elas se atropelam e falham com violação de chave estrangeira.
 
 Checklist manual mínimo:
 

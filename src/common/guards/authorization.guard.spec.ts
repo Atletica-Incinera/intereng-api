@@ -144,6 +144,7 @@ describe('AuthorizationGuard', () => {
     const phase = await prisma.phase.create({
       data: {
         tournamentId: tournament.id,
+        clientId: 'guard-phase-1',
         order: 1,
         name: 'Semifinal',
         type: PhaseType.KNOCKOUT,

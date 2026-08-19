@@ -10,7 +10,15 @@ type CookieSameSite = 'lax' | 'strict' | 'none';
 @Injectable()
 export class ConfigService {
   constructor() {
+    // Os getters de segredo são preguiçosos: sem tocá-los aqui, a falta de um
+    // deles só apareceria no primeiro login — ou, pior, nunca, porque o valor
+    // padrão assumiria o lugar em silêncio. Lidos no boot, a ausência derruba a
+    // aplicação antes de ela atender qualquer requisição.
     void env.staffInvitePassword;
+    void env.jwtSecret;
+    void env.jwtRefreshSecret;
+    void env.piiPepper;
+    void env.piiEncryptionKey;
   }
 
   /**
@@ -70,6 +78,10 @@ export class ConfigService {
 
   get cookieDomain(): string | undefined {
     return env.cookieDomain;
+  }
+
+  get cookiePath(): string {
+    return env.cookiePath;
   }
 
   get cookieSecure(): boolean {

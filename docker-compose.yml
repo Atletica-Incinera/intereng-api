@@ -3,8 +3,13 @@ services:
     image: postgres:16-alpine
     container_name: intereng-postgres
     restart: always
+    # Publicado apenas no loopback. Antes era 0.0.0.0, o que expunha o banco a
+    # qualquer host que alcançasse a máquina — e regras de firewall não filtram
+    # portas publicadas pelo Docker, porque elas entram por DNAT antes do filtro.
+    # A API não usa esta porta: fala com o Postgres pelo nome do serviço na rede
+    # interna. Ela existe só para inspeção local.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-competitions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -23,8 +28,13 @@ services:
     image: redis:7-alpine
     container_name: intereng-redis
     restart: always
+    # O Redis não tinha autenticação alguma. Como ele guarda o cache do snapshot
+    # público, quem alcançasse a porta conseguia reescrever a classificação que
+    # os espectadores veem. A senha e a REDIS_URL da API saem da MESMA variável,
+    # para não existir estado em que uma mude sem a outra.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-intereng_redis_local}"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - intereng_redis_data:/data
     networks:
@@ -47,7 +57,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_pass}@intereng-postgres:5432/${POSTGRES_DB:-competitions}?schema=public
-      - REDIS_URL=redis://intereng-redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-intereng_redis_local}@intereng-redis:6379
       - REDIS_STREAM_TTL=${REDIS_STREAM_TTL:-7200}
       - JWT_SECRET=${JWT_SECRET}
     env_file:

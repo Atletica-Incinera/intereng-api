@@ -1,11 +1,27 @@
 import * as crypto from 'crypto';
+import { env } from '../common/config/env';
 
-const PEPPER = process.env.PII_PEPPER || 'default-pii-pepper-for-hashing-only';
-const ENCRYPTION_KEY_RAW =
-  process.env.PII_ENCRYPTION_KEY || 'default-32-byte-key-for-aes-256-cbc-encryption!';
+/**
+ * Os segredos são lidos sob demanda, e não na carga do módulo.
+ *
+ * Lidos no topo do arquivo eles seriam resolvidos no primeiro `import`, antes de
+ * qualquer validação de ambiente — e o valor padrão, publicado no repositório,
+ * acabava valendo em produção sem que nada acusasse. Passando por `env`, a
+ * ausência em produção derruba o boot.
+ *
+ * O resultado é memoizado porque derivar a chave custa um SHA-256 por chamada.
+ */
+let cachedKey: Buffer | null = null;
 
-// Ensure the encryption key is exactly 32 bytes
-const ENCRYPTION_KEY = crypto.createHash('sha256').update(ENCRYPTION_KEY_RAW).digest();
+function pepper(): string {
+  return env.piiPepper;
+}
+
+function encryptionKey(): Buffer {
+  // A chave do AES-256 precisa ter exatamente 32 bytes.
+  cachedKey ??= crypto.createHash('sha256').update(env.piiEncryptionKey).digest();
+  return cachedKey;
+}
 
 /**
  * Generates a one-way cryptographically secure HMAC hash of a document.
@@ -16,7 +32,7 @@ const ENCRYPTION_KEY = crypto.createHash('sha256').update(ENCRYPTION_KEY_RAW).di
  * @returns A hex-encoded SHA-256 HMAC hash.
  */
 export function hashDocument(doc: string): string {
-  return crypto.createHmac('sha256', PEPPER).update(doc).digest('hex');
+  return crypto.createHmac('sha256', pepper()).update(doc).digest('hex');
 }
 
 /**
@@ -30,7 +46,7 @@ export function hashDocument(doc: string): string {
 export function encryptDocument(doc: string): string {
   // Deterministic IV to support database unique constraint check
   const iv = crypto.createHash('sha256').update(doc).digest().slice(0, 16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv('aes-256-cbc', encryptionKey(), iv);
   let encrypted = cipher.update(doc, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   return `${iv.toString('hex')}:${encrypted}`;
@@ -54,7 +70,7 @@ export function decryptDocument(storedValue: string): string {
   }
   const iv = Buffer.from(parts[1], 'hex');
   const encryptedText = parts[2];
-  const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+  const decipher = crypto.createDecipheriv('aes-256-cbc', encryptionKey(), iv);
   let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;

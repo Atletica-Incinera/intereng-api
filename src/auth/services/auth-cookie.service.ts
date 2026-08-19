@@ -32,7 +32,7 @@ export class AuthCookieService {
       secure,
       sameSite,
       domain: this.configService.cookieDomain,
-      path: '/api/v1/auth',
+      path: this.configService.cookiePath,
     };
   }
 }

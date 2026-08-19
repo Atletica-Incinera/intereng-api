@@ -33,6 +33,41 @@ function sameSiteValue(): SameSite {
   throw new Error('Variável de ambiente inválida: COOKIE_SAME_SITE deve ser lax, strict ou none');
 }
 
+/**
+ * Segredo criptográfico com trava de produção.
+ *
+ * O padrão só vale fora de produção. Antes, um `.env` incompleto fazia a API
+ * subir assinando tokens (ou cifrando CPF) com um valor publicado no
+ * repositório — sem log, sem aviso, sem falha. Agora falta de segredo derruba o
+ * boot, que é barulhento e acontece antes de qualquer requisição.
+ */
+function productionSecret(
+  name: string,
+  developmentFallback: string,
+  options: { minLength?: number; aviso?: string } = {},
+): string {
+  const minLength = options.minLength ?? 32;
+  const configured = process.env[name]?.trim();
+
+  if (configured) {
+    if (configured.length < minLength) {
+      throw new Error(
+        `Variável de ambiente inválida: ${name} deve ter ao menos ${minLength} caracteres.`,
+      );
+    }
+    return configured;
+  }
+
+  if (value('NODE_ENV', 'development') === 'production') {
+    throw new Error(
+      `Variável de ambiente obrigatória ausente: ${name}.` +
+        (options.aviso ? ` ${options.aviso}` : ''),
+    );
+  }
+
+  return developmentFallback;
+}
+
 function staffInvitePassword(): string {
   const configured = process.env.STAFF_INVITE_PASSWORD?.trim();
   if (configured) {
@@ -115,6 +150,21 @@ export const env = {
   get cookieDomain(): string | undefined {
     return process.env.COOKIE_DOMAIN?.trim() || undefined;
   },
+  /**
+   * Caminho do cookie de refresh.
+   *
+   * O padrão é `/` de propósito. O valor anterior era o prefixo interno do Nest
+   * (`/api/v1/auth`), o que só funciona quando a API é servida na raiz do
+   * domínio: atrás de um proxy que a monta sob outro caminho — em produção,
+   * `/intereng-api` — o navegador nunca encontra correspondência e deixa de
+   * enviar o cookie, derrubando a sessão a cada expiração do token de acesso.
+   *
+   * Com `/` o cookie funciona sob qualquer montagem. Quem quiser restringir o
+   * escopo define COOKIE_PATH com o caminho público real.
+   */
+  get cookiePath(): string {
+    return process.env.COOKIE_PATH?.trim() || '/';
+  },
   get cookieSecure(): boolean {
     return booleanValue('COOKIE_SECURE', this.nodeEnv === 'production');
   },
@@ -128,10 +178,24 @@ export const env = {
     return positiveInteger('JWT_REFRESH_TTL_SECONDS', 7 * 24 * 60 * 60);
   },
   get jwtSecret(): string {
-    return value('JWT_SECRET', 'local-access-secret-change-in-production');
+    return productionSecret('JWT_SECRET', 'local-access-secret-change-in-production');
   },
   get jwtRefreshSecret(): string {
-    return value('JWT_REFRESH_SECRET', 'local-refresh-secret-change-in-production');
+    return productionSecret('JWT_REFRESH_SECRET', 'local-refresh-secret-change-in-production');
+  },
+  get piiPepper(): string {
+    return productionSecret('PII_PEPPER', 'local-pii-pepper-change-in-production', {
+      aviso:
+        'Se a base já tem documentos gravados, use exatamente o mesmo valor de antes: ' +
+        'trocar o pepper invalida o índice de unicidade dos documentos existentes.',
+    });
+  },
+  get piiEncryptionKey(): string {
+    return productionSecret('PII_ENCRYPTION_KEY', 'local-32-byte-key-change-me-now!', {
+      aviso:
+        'Se a base já tem documentos cifrados, use exatamente o mesmo valor de antes: ' +
+        'com outra chave os documentos existentes deixam de ser legíveis e precisam ser recifrados.',
+    });
   },
   get staffInvitePassword(): string {
     return staffInvitePassword();
