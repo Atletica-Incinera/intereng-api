@@ -490,6 +490,59 @@ export class ContextActionHandler {
     };
   }
 
+  /**
+   * Promove uma conta a super administrador — cria a conta se o e-mail ainda
+   * não existir.
+   *
+   * Diferente de staff/upsert, não é um papel de edição: super admin é a flag
+   * global `Staff.isSuperAdmin`, sem linha em EditionStaffRole nem escopo. A
+   * ação é global (GLOBAL_ACTIONS em edition-actions.service.ts), então só
+   * quem já é super admin chega até aqui — nenhuma checagem extra é precisa.
+   *
+   * Quando a conta já existe, o nome cadastrado prevalece: o nome enviado
+   * aqui só é usado para criar uma conta nova, nunca para sobrescrever a
+   * identidade de alguém que já está no sistema.
+   */
+  async promoteSuperAdmin(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['email', 'name']);
+    const email = actionEmail(payload, 'email', 'O e-mail da conta');
+    const name = actionString(payload, 'name', 'O nome da conta', { min: 2, max: 160 });
+
+    const existing = await context.transaction.staff.findUnique({
+      where: { email },
+      select: { id: true, isSuperAdmin: true },
+    });
+
+    let staffId: string;
+    if (existing) {
+      staffId = existing.id;
+      if (!existing.isSuperAdmin) {
+        await context.transaction.staff.update({
+          where: { id: existing.id },
+          data: { isSuperAdmin: true },
+        });
+      }
+    } else {
+      const passwordHash = await bcrypt.hash(this.config.staffInvitePassword, 10);
+      // Mesma senha de convite de staff/upsert, com a mesma trava: a conta
+      // nasce exigindo a troca no primeiro acesso.
+      const created = await context.transaction.staff.create({
+        data: { name, email, passwordHash, isSuperAdmin: true, mustChangePassword: true },
+        select: { id: true },
+      });
+      staffId = created.id;
+    }
+
+    return {
+      entityType: 'Staff',
+      entityId: staffId,
+      affectedEditionIds: await this.allEditionIds(context),
+    };
+  }
+
   private parseEdition(record: Record<string, unknown>): {
     id: string;
     competitionId: string;
