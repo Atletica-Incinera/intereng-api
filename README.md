@@ -90,6 +90,47 @@ Configuração operacional:
 
 Use segredos fortes, TLS e `COOKIE_SECURE=true` em produção. `S3_PRESIGN_ENDPOINT` deve ser acessível pelo navegador; `S3_ENDPOINT` deve ser acessível pela API.
 
+## Armazenamento das logos
+
+O Compose sobe um MinIO (`intereng-minio`) com volume próprio. Um container de
+inicialização cria o bucket e libera **leitura anônima apenas do prefixo
+`teams/`** — o resto do bucket, e a listagem, continuam fechados. Ele é
+idempotente: repetir o deploy não refaz nada.
+
+O ponto que costuma dar errado é que existem **três endereços diferentes**:
+
+| Variável | Quem usa | Precisa passar pelo proxy? |
+| --- | --- | --- |
+| `S3_ENDPOINT` | a API, pela rede interna | não |
+| `S3_PRESIGN_ENDPOINT` | o navegador, ao enviar o arquivo | **sim** |
+| `S3_PUBLIC_BASE_URL` | o navegador, ao exibir a logo | **sim** |
+
+O `S3_ENDPOINT` já vem definido no Compose apontando para o container. Os outros
+dois dependem do domínio público e ficam no `.env`, porque mudam por implantação.
+
+Como o cliente usa `forcePathStyle`, o navegador envia para
+`<S3_PRESIGN_ENDPOINT>/<bucket>`. Se o MinIO for exposto sob um prefixo, o proxy
+precisa removê-lo antes de repassar. Em nginx:
+
+```nginx
+location /intereng-storage/ {
+    proxy_pass http://intereng-minio:9000/;
+    client_max_body_size 10m;
+}
+```
+
+E então, no `.env`:
+
+```text
+S3_PRESIGN_ENDPOINT=https://SEU-DOMINIO/intereng-storage
+S3_PUBLIC_BASE_URL=https://SEU-DOMINIO/intereng-storage/intereng
+```
+
+O `client_max_body_size` importa: o padrão do nginx é 1 MB, e o limite da
+aplicação é maior — sem essa linha o upload falha com 413 antes de chegar ao
+MinIO. O proxy também precisa estar na rede `incinera-network`, que é por onde
+ele alcança o container.
+
 ## Migrações
 
 As migrations ficam em `migrations/` e são aplicadas em ordem:
