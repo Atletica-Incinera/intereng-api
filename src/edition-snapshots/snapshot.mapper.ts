@@ -903,6 +903,8 @@ export class SnapshotMapper {
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
+        staffId: true,
+        editionDisciplineId: true,
         role: true,
         revokedAt: true,
         staff: { select: { name: true, email: true } },
@@ -912,8 +914,21 @@ export class SnapshotMapper {
       },
     });
 
-    const staff: Record<string, StaffSnapshotDto> = {};
+    // Revogar e reconceder acesso não reescreve a atribuição — grava uma linha
+    // nova e marca a antiga com revokedAt. Sem esta deduplicação, cada ciclo de
+    // revogar+reativar deixava as duas na tela: um card fantasma "Revogado" ao
+    // lado do card ativo da mesma pessoa. A ordenação ascendente por criação
+    // garante que, ao sobrescrever a mesma chave, sobra a atribuição mais
+    // recente — a pessoa continua podendo ter mais de um papel ativo ao mesmo
+    // tempo (ex.: gestor de duas modalidades), só não duplica o histórico.
+    const latestByAssignment = new Map<string, (typeof roles)[number]>();
     for (const assignment of roles) {
+      const key = `${assignment.staffId}:${assignment.role}:${assignment.editionDisciplineId ?? ''}`;
+      latestByAssignment.set(key, assignment);
+    }
+
+    const staff: Record<string, StaffSnapshotDto> = {};
+    for (const assignment of latestByAssignment.values()) {
       staff[assignment.id] = {
         roleAssignmentId: assignment.id,
         name: assignment.staff.name,
