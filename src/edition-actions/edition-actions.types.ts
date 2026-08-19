@@ -38,6 +38,7 @@ export const EDITION_ACTION_TYPES = [
   'edition/update',
   'edition/activate',
   'staff/upsert',
+  'staff/promoteSuperAdmin',
 ] as const;
 
 export type EditionActionType = (typeof EDITION_ACTION_TYPES)[number];

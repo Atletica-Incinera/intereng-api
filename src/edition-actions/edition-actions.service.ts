@@ -49,6 +49,11 @@ const GLOBAL_ACTIONS = new Set<EditionActionType>([
   'edition/create',
   'edition/update',
   'edition/activate',
+  // Diferente de staff/upsert (que admin de edição também executa, via
+  // authorizeEditionAdminStaff): conceder super admin é irrestrito — global,
+  // sem checagem de escopo — então cabe no mesmo gate "só super admin" das
+  // ações acima, não numa branch própria.
+  'staff/promoteSuperAdmin',
 ]);
 const MANAGER_ACTIONS = new Set<EditionActionType>([
   'match/schedule',
@@ -137,6 +142,8 @@ export class EditionActionsService {
       'edition/update': (context, payload) => contextActions.editionUpdate(context, payload),
       'edition/activate': (context, payload) => contextActions.editionActivate(context, payload),
       'staff/upsert': (context, payload) => contextActions.staffUpsert(context, payload),
+      'staff/promoteSuperAdmin': (context, payload) =>
+        contextActions.promoteSuperAdmin(context, payload),
     };
   }
 
