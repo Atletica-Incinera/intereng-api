@@ -1,7 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { OnEvent } from '@nestjs/event-emitter';
-import { DomainEvents, MatchFinishedEvent } from '../common/events';
 import { MatchStatus, Prisma } from '@prisma/client';
 import { StandingsCalculator } from './standings-calculator';
 
@@ -39,18 +37,24 @@ export class StandingsService {
   }
 
   /**
-   * Intercepta o evento de término de partida para disparar automaticamente o recálculo da classificação.
+   * @deprecated MOTOR LEGADO EM QUARENTENA — NÃO CHAME ESTE MÉTODO EM CÓDIGO DE PRODUÇÃO.
    *
-   * @param event O evento contendo o ID da fase associada à partida encerrada.
-   */
-  @OnEvent(DomainEvents.MATCH_FINISHED)
-  async handleMatchFinished(event: MatchFinishedEvent): Promise<void> {
-    await this.recomputeStandings(event.phaseId);
-  }
-
-  /**
-   * Recalcula e persiste de forma atômica toda a classificação de uma determinada fase.
-   * A classificação é calculada por grupo (caso a fase possua grupos) ou globalmente na fase.
+   * A fonte de verdade de `phase_standings` é `EditionActionRecalculationService.recomputeTournament`
+   * (src/edition-actions/edition-action-recalculation.service.ts), acionada apenas pelos handlers de
+   * ação dentro da transação Serializable com advisory lock por edição.
+   *
+   * Este método diverge do motor canônico em vários eixos e por isso não pode voltar a ser ligado:
+   * - pontuação 3/1/0 fixa (src/standings/standings-calculator.ts) em vez do regulamento por
+   *   modalidade (Basquete 2/0/1, vôlei 3/0/0, xadrez 1/0.5/0 — src/edition-actions/action-regulation.ts);
+   * - ranks empatados (1,1,3) e possivelmente `null`, enquanto `progressKnockout` exige ranks
+   *   sequenciais únicos para montar o mata-mata;
+   * - lê e escreve fora do envelope transacional do pipeline de ações (sem lock, sem retry),
+   *   o que produz lost update quando concorre com uma ação da mesma edição;
+   * - recalcula uma única fase, enquanto o motor canônico recalcula o torneio inteiro.
+   *
+   * Sobrevive apenas para src/standings/standings.service.spec.ts e test/standings.e2e-spec.ts.
+   * Remoção agendada para a fase seguinte do cutover, junto com `StandingsCalculator`,
+   * `src/standings/strategies/` e `src/standings/interfaces/tiebreaker-strategy.interface.ts`.
    *
    * @param phaseId O ID da fase que será recalculada.
    */

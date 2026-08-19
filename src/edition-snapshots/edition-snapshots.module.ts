@@ -10,6 +10,6 @@ import { UploadsModule } from '../uploads/uploads.module';
   imports: [AuthModule, UploadsModule],
   controllers: [EditionSnapshotsController],
   providers: [ActiveEditionResolver, EditionSnapshotsService, SnapshotMapper],
-  exports: [EditionSnapshotsService],
+  exports: [EditionSnapshotsService, ActiveEditionResolver],
 })
 export class EditionSnapshotsModule {}

@@ -293,6 +293,11 @@ export class CategoryActionHandler {
         'format',
         'groups',
         'qualifiers',
+        // O snapshot devolve a classificação calculada dentro de cada fase, e o
+        // cliente reenvia a fase inteira ao alterar a categoria. É campo de
+        // leitura: aceito para não recusar o que o próprio servidor emitiu, e
+        // ignorado aqui porque quem o produz é o recálculo.
+        'standings',
       ]);
       const clientId = actionId(phase, 'id', `O ID da fase ${index + 1}`);
       const phaseName = actionString(phase, 'name', `O nome da fase ${index + 1}`, {
