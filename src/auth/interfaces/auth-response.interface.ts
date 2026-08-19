@@ -17,6 +17,11 @@ export interface AuthUserResponse {
   role: FrontendRole;
   scope?: string;
   editionRoles: ActiveEditionRoleResponse[];
+  /**
+   * A conta ainda usa a senha inicial — a do convite ou a do bootstrap. Com ela
+   * verdadeira o app só libera a troca de senha, e a API recusa o resto.
+   */
+  mustChangePassword: boolean;
 }
 
 export interface AuthResponse {

@@ -19,6 +19,9 @@ export class ConfigService {
     void env.jwtRefreshSecret;
     void env.piiPepper;
     void env.piiEncryptionKey;
+    // Pelo mesmo motivo: com só uma das duas variáveis do bootstrap definidas,
+    // a conta não seria criada e nada avisaria.
+    void env.bootstrapSuperAdmin;
   }
 
   /**
@@ -74,6 +77,10 @@ export class ConfigService {
 
   get staffInvitePassword(): string {
     return env.staffInvitePassword;
+  }
+
+  get bootstrapSuperAdmin(): { email: string; password: string } | undefined {
+    return env.bootstrapSuperAdmin;
   }
 
   get cookieDomain(): string | undefined {

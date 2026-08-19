@@ -12,7 +12,9 @@ import {
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AllowPasswordChangePending } from './decorators/allow-password-change-pending.decorator';
 import { Cookies } from '../common/decorators/cookies.decorator';
 import { AuthResponse, LogoutResponse, MeResponse } from './interfaces/auth-response.interface';
 import { AuthCookieService, REFRESH_TOKEN_COOKIE_NAME } from './services/auth-cookie.service';
@@ -21,6 +23,7 @@ interface RequestWithUser extends Request {
   user?: {
     id: string;
     isSuperAdmin: boolean;
+    mustChangePassword: boolean;
   };
 }
 
@@ -72,8 +75,34 @@ export class AuthController {
     return { message: 'Logout realizado com sucesso.' };
   }
 
+  /**
+   * Troca a senha da própria conta.
+   *
+   * Liberada para quem ainda não trocou a senha inicial — é justamente a única
+   * rota que essa pessoa alcança. Devolve uma sessão nova porque a troca revoga
+   * todas as anteriores, inclusive a de quem está pedindo.
+   */
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @AllowPasswordChangePending()
+  async changePassword(
+    @Req() request: RequestWithUser,
+    @Body() changePasswordDto: ChangePasswordDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AuthResponse> {
+    if (!request.user) {
+      throw new UnauthorizedException('Usuário não autenticado.');
+    }
+
+    const session = await this.authService.changePassword(request.user.id, changePasswordDto);
+    this.authCookieService.setRefreshToken(response, session.refreshToken);
+    return session.auth;
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @AllowPasswordChangePending()
   async me(@Req() request: RequestWithUser): Promise<MeResponse> {
     if (!request.user) {
       throw new UnauthorizedException('Usuário não autenticado.');

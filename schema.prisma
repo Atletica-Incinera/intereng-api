@@ -202,6 +202,9 @@ model Staff {
   email        String  @unique
   passwordHash String
   isSuperAdmin Boolean @default(false)
+  /// Marca as contas que ainda usam a senha inicial — a de convite ou a do
+  /// bootstrap. Enquanto verdadeira, a sessão só alcança a troca de senha.
+  mustChangePassword Boolean @default(false)
 
   createdAt DateTime @default(now())
 

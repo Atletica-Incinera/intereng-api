@@ -90,6 +90,32 @@ Configuração operacional:
 
 Use segredos fortes, TLS e `COOKIE_SECURE=true` em produção. `S3_PRESIGN_ENDPOINT` deve ser acessível pelo navegador; `S3_ENDPOINT` deve ser acessível pela API.
 
+## Primeira conta e troca de senha
+
+Toda conta nasce com uma senha que outra pessoa escolheu: a de convite
+(`STAFF_INVITE_PASSWORD`, igual para todos os convidados) ou a do bootstrap, que
+vem do ambiente. Por isso ela nasce marcada com `mustChangePassword`: enquanto a
+marca estiver de pé, a API responde **403 em tudo** menos `auth/me`,
+`auth/logout` e `auth/change-password`, e o app leva a pessoa direto para a troca.
+Trocar a senha revoga todas as sessões da conta — inclusive as de quem sabia a
+senha inicial — e emite uma nova para quem acabou de trocar.
+
+Um banco de produção recém-migrado não tem caminho para a **primeira** conta: o
+login exige uma linha em `staff`, criar staff exige uma sessão de super
+administrador, e o seed recusa `NODE_ENV=production`. Preencha as duas variáveis
+abaixo e a API cria a conta no boot, uma única vez:
+
+```text
+BOOTSTRAP_SUPER_ADMIN_EMAIL=alguem@exemplo.br
+BOOTSTRAP_SUPER_ADMIN_PASSWORD=<12 a 72 caracteres>
+```
+
+O bootstrap é idempotente e se autodesliga: havendo qualquer super administrador,
+ele não faz nada e registra isso no log. As variáveis podem ficar no ambiente
+para sempre. Se o e-mail já pertencer a outra conta, ele **não** a promove —
+registra erro e segue, porque conceder super administrador a partir de variável
+de ambiente seria pior do que não criar nada.
+
 ## Armazenamento das logos
 
 O Compose sobe um MinIO (`intereng-minio`) com volume próprio. Um container de
@@ -168,6 +194,7 @@ Rotas principais:
 | `POST` | `/api/v1/auth/refresh` | rotacionar refresh e renovar a sessão |
 | `POST` | `/api/v1/auth/logout` | revogar a sessão |
 | `GET` | `/api/v1/auth/me` | devolver identidade, papel e escopo |
+| `POST` | `/api/v1/auth/change-password` | trocar a própria senha e receber uma sessão nova |
 | `GET` | `/api/v1/editions/:id/snapshot` | snapshot privado com `meta.revision` |
 | `GET` | `/api/v1/editions/:id/public-snapshot` | snapshot público redigido e cacheável |
 | `POST` | `/api/v1/editions/:id/actions` | executar uma das 32 ações transacionais |

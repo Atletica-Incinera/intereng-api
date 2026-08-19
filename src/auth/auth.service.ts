@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { EditionStaffRoleType, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuditService } from '../common/audit/audit.service';
 import { ConfigService } from '../common/config/config.service';
 import { LoginDto } from './dto/login.dto';
 import { IHashService } from './interfaces/hash-service.interface';
@@ -20,6 +21,12 @@ export interface JwtPayload {
   email: string;
   isSuperAdmin: boolean;
   jti: string;
+  /**
+   * Viaja no token para o guard não precisar de uma consulta por requisição. O
+   * access token dura 15 min e a troca de senha revoga as sessões e emite outro,
+   * então não existe janela em que a marca fique defasada para mais permissão.
+   */
+  mustChangePassword?: boolean;
 }
 
 const ACTIVE_AUTH_STAFF_SELECT = {
@@ -28,6 +35,7 @@ const ACTIVE_AUTH_STAFF_SELECT = {
   email: true,
   passwordHash: true,
   isSuperAdmin: true,
+  mustChangePassword: true,
   editionRoles: {
     where: {
       revokedAt: null,
@@ -78,6 +86,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly refreshSessionsService: RefreshSessionsService,
+    private readonly auditService: AuditService,
     @Inject(IHashService) private readonly hashService: IHashService,
     @Inject(ITokenService) private readonly tokenService: ITokenService,
   ) {}
@@ -139,6 +148,73 @@ export class AuthService {
 
   async logout(refreshToken: string | undefined): Promise<void> {
     await this.refreshSessionsService.revoke(refreshToken);
+  }
+
+  /**
+   * Troca a senha da própria conta e devolve uma sessão nova.
+   *
+   * Toda conta nasce com uma senha que outra pessoa escolheu — a do convite,
+   * comum a todos os convidados, ou a do bootstrap, que vive num secret de CI.
+   * Sem este caminho essa senha seria permanente: trocar a variável de ambiente
+   * não reescreve hash já gravado.
+   *
+   * A troca revoga todas as sessões da conta, inclusive a de quem está pedindo,
+   * e emite outra em seguida. Assim, se a senha inicial tinha vazado, quem
+   * estava usando perde o acesso no mesmo instante, e quem trocou não é
+   * deslogado à toa.
+   */
+  async changePassword(
+    staffId: string,
+    input: { currentPassword: string; newPassword: string },
+  ): Promise<IssuedAuthSession> {
+    const staff = await this.findStaffWithActiveRoles(staffId);
+    if (!staff) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    const currentMatches = await this.hashService.compare(
+      input.currentPassword,
+      staff.passwordHash,
+    );
+    if (!currentMatches) {
+      throw new UnauthorizedException('A senha atual está incorreta.');
+    }
+
+    if (input.currentPassword === input.newPassword) {
+      throw new BadRequestException('A nova senha deve ser diferente da atual.');
+    }
+
+    const passwordHash = await this.hashService.hash(input.newPassword);
+    await this.prisma.staff.update({
+      where: { id: staffId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+
+    await this.refreshSessionsService.revokeAllForStaff(staffId);
+
+    // Sem `before`/`after`: os dois só poderiam carregar hash de senha, e a
+    // trilha de auditoria é lida dentro do snapshot pela tela de atividade.
+    await this.auditService.record({
+      staffId,
+      action: 'auth/change-password',
+      entityType: 'Staff',
+      entityId: staffId,
+    });
+
+    const identity = this.resolveIdentity({ ...staff, mustChangePassword: false });
+    const session = this.issueSession(identity);
+
+    await this.refreshSessionsService.create({
+      token: session.refreshToken,
+      staffId: identity.user.id,
+      editionId: session.editionId,
+      expiresAt: session.refreshExpiresAt,
+    });
+
+    return {
+      auth: session.auth,
+      refreshToken: session.refreshToken,
+    };
   }
 
   async getMe(staffId: string): Promise<MeResponse> {
@@ -214,7 +290,7 @@ export class AuthService {
   }
 
   private mapUser(
-    staff: Pick<StaffWithActiveRoles, 'id' | 'email' | 'name'>,
+    staff: Pick<StaffWithActiveRoles, 'id' | 'email' | 'name' | 'mustChangePassword'>,
     role: FrontendRole,
     editionRoles: ActiveEditionRoleResponse[],
     scope?: string,
@@ -225,6 +301,7 @@ export class AuthService {
       name: staff.name,
       role,
       editionRoles,
+      mustChangePassword: staff.mustChangePassword,
       ...(scope ? { scope } : {}),
     };
   }
@@ -249,6 +326,7 @@ export class AuthService {
       sub: identity.user.id,
       email: identity.user.email,
       isSuperAdmin: identity.isSuperAdmin,
+      mustChangePassword: identity.user.mustChangePassword,
     };
     const accessToken = this.tokenService.sign(
       { ...commonPayload, jti: randomUUID() },
@@ -298,6 +376,9 @@ export class AuthService {
       throw new Error('Payload de autenticação inválido.');
     }
 
-    return payload;
+    // Ausente significa falso: tokens emitidos antes desta versão continuam
+    // válidos até expirar, e a ausência da marca nunca concede mais permissão
+    // do que o portador já tinha.
+    return { ...payload, mustChangePassword: payload.mustChangePassword === true };
   }
 }

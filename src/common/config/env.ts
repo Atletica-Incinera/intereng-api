@@ -84,9 +84,62 @@ function staffInvitePassword(): string {
   return 'intereng2026';
 }
 
+/**
+ * Tamanho mínimo de toda senha escolhida por uma pessoa.
+ *
+ * Vale para o bootstrap do super administrador e para a troca de senha. É maior
+ * que o mínimo do convite (8) de propósito: a senha de convite é temporária e
+ * trocada no primeiro acesso, enquanto estas duas ficam.
+ */
+export const MIN_CHOSEN_PASSWORD_LENGTH = 12;
+
+/** Limite do bcrypt: ele trunca em silêncio a partir de 72 bytes. */
+export const MAX_PASSWORD_BYTES = 72;
+
+/**
+ * Credencial do primeiro super administrador.
+ *
+ * Sem ela, um banco de produção recém-migrado não tem caminho para a primeira
+ * conta: o login exige uma linha em `staff`, criar staff exige uma sessão de
+ * super administrador, e o seed recusa `NODE_ENV=production`.
+ *
+ * As duas variáveis andam juntas. Configurar só uma derruba o boot em vez de
+ * ser ignorada em silêncio — meia configuração aqui significa que alguém tentou
+ * criar a conta e ela não vai existir.
+ */
+function bootstrapSuperAdmin(): { email: string; password: string } | undefined {
+  const email = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD?.trim();
+
+  if (!email && !password) return undefined;
+  if (!email || !password) {
+    throw new Error(
+      'Variáveis de ambiente incompletas: BOOTSTRAP_SUPER_ADMIN_EMAIL e ' +
+        'BOOTSTRAP_SUPER_ADMIN_PASSWORD precisam ser definidas juntas.',
+    );
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw new Error('Variável de ambiente inválida: BOOTSTRAP_SUPER_ADMIN_EMAIL não é um e-mail.');
+  }
+  if (
+    password.length < MIN_CHOSEN_PASSWORD_LENGTH ||
+    Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES
+  ) {
+    throw new Error(
+      'Variável de ambiente inválida: BOOTSTRAP_SUPER_ADMIN_PASSWORD deve ter entre ' +
+        `${MIN_CHOSEN_PASSWORD_LENGTH} e ${MAX_PASSWORD_BYTES} bytes.`,
+    );
+  }
+
+  return { email, password };
+}
+
 export const env = {
   required(name: RequiredEnv): string {
     return value(name);
+  },
+  get bootstrapSuperAdmin(): { email: string; password: string } | undefined {
+    return bootstrapSuperAdmin();
   },
   get nodeEnv(): string {
     return value('NODE_ENV', 'development');

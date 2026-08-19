@@ -99,6 +99,21 @@ export class RefreshSessionsService {
     });
   }
 
+  /**
+   * Revoga todas as sessões da conta, sem depender de qual token o chamador tem
+   * em mãos. É o que a troca de senha precisa: derrubar também as sessões
+   * abertas por quem sabia a senha anterior.
+   */
+  async revokeAllForStaff(staffId: string): Promise<void> {
+    await this.prisma.$transaction(async (transaction) => {
+      await this.lockStaffSessions(transaction, staffId);
+      await transaction.refreshSession.updateMany({
+        where: { staffId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
+  }
+
   private async lockStaffSessions(
     transaction: Prisma.TransactionClient,
     staffId: string,

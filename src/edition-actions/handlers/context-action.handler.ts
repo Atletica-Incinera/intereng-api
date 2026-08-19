@@ -387,8 +387,11 @@ export class ContextActionHandler {
     });
     if (!staff) {
       const passwordHash = await bcrypt.hash(this.config.staffInvitePassword, 10);
+      // A senha de convite é a mesma para todo mundo e quem convidou a conhece.
+      // A marca obriga a troca no primeiro acesso, então ela não sobrevive à
+      // primeira sessão da pessoa.
       staff = await context.transaction.staff.create({
-        data: { name, email, passwordHash, isSuperAdmin: false },
+        data: { name, email, passwordHash, isSuperAdmin: false, mustChangePassword: true },
         select: { id: true, name: true, isSuperAdmin: true },
       });
     } else if (!context.user.isSuperAdmin) {

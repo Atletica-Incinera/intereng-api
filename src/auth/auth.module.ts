@@ -8,6 +8,7 @@ import { IHashService } from './interfaces/hash-service.interface';
 import { ITokenService } from './interfaces/token-service.interface';
 import { AuthCookieService } from './services/auth-cookie.service';
 import { RefreshSessionsService } from './services/refresh-sessions.service';
+import { SuperAdminBootstrapService } from './services/super-admin-bootstrap.service';
 
 @Module({
   controllers: [AuthController],
@@ -15,6 +16,7 @@ import { RefreshSessionsService } from './services/refresh-sessions.service';
     AuthService,
     AuthCookieService,
     RefreshSessionsService,
+    SuperAdminBootstrapService,
     JwtAuthGuard,
     {
       provide: IHashService,
