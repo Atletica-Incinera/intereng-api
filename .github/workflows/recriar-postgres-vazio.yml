@@ -1,0 +1,121 @@
+name: Recriar Postgres vazio (produção)
+
+# Existe para um problema específico: a senha em POSTGRES_PASSWORD (secret
+# DOTENV_FILE) não bate com a que está gravada no volume — ela só é aplicada no
+# initdb, na primeira vez que o container sobe com o volume vazio. Trocar a
+# variável depois disso não muda a senha real, só quebra quem conecta pela rede
+# com o valor novo. É exatamente o que travou o deploy em 19/08/2026: o backup
+# (que roda dentro do próprio container, sem senha) funcionou; a migration
+# (que conecta pela rede) recebeu P1000 — autenticação inválida.
+#
+# SÓ FAZ SENTIDO enquanto o banco estiver genuinamente vazio: o primeiro passo
+# confirma 0 tabelas e aborta alto se houver qualquer uma. Não tenta preservar
+# nem recuperar senha nenhuma — apaga o volume vazio e deixa o Postgres
+# reinicializar do zero com a senha que está no secret agora, o que faz a senha
+# real voltar a bater com o que todo o resto do sistema espera.
+#
+# Manual só, com confirmação por texto: não é algo para disparar por engano.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmacao:
+        description: 'Digite exatamente: RECRIAR VOLUME VAZIO'
+        required: true
+
+jobs:
+  recriar:
+    name: Recriar volume do Postgres
+    runs-on: self-hosted
+    steps:
+      - name: Conferir a frase de confirmação
+        env:
+          # Via env, não interpolado direto no script: entrada do usuário não
+          # deve ser colada em shell.
+          CONFIRMACAO: ${{ github.event.inputs.confirmacao }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRMACAO" != "RECRIAR VOLUME VAZIO" ]; then
+            echo "::error::Frase de confirmação incorreta. Nada foi executado."
+            exit 1
+          fi
+
+      - name: Preparar ambiente
+        run: |
+          set -euo pipefail
+          PROJECT_DIR="$HOME/intereng-api"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+
+          # Mesmo passo do cd.yml: o .env sempre reflete o secret atual.
+          umask 077
+          cat > .env <<'DOTENV_EOF'
+          ${{ secrets.DOTENV_FILE }}
+          DOTENV_EOF
+          chmod 600 .env
+
+      # Trava real: sem isto, um clique errado neste workflow apagaria dados.
+      - name: Confirmar que o banco está vazio antes de tocar em qualquer coisa
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          if ! docker ps --format '{{.Names}}' | grep -qx intereng-postgres; then
+            echo "::error::Container intereng-postgres não está no ar. Nada foi executado."
+            exit 1
+          fi
+          COUNT=$(docker exec intereng-postgres psql -U postgres -d competitions -qAt \
+            -c "select count(*) from information_schema.tables where table_schema='public';")
+          echo "tabelas em public: $COUNT"
+          if [ "$COUNT" != "0" ]; then
+            echo "::error::O banco tem $COUNT tabela(s) — não está vazio. Este workflow só serve para o caso vazio. Nada foi executado."
+            exit 1
+          fi
+
+      - name: Recriar o container e o volume do Postgres
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+
+          VOLUME=$(docker volume ls --format '{{.Name}}' | grep -E '_?intereng_postgres_data$' || true)
+          COUNT_VOL=$(printf '%s\n' "$VOLUME" | grep -c . || true)
+          if [ "$COUNT_VOL" != "1" ]; then
+            echo "::error::Esperava exatamente um volume de Postgres e encontrei $COUNT_VOL ($VOLUME). Abortando sem tocar em nada."
+            exit 1
+          fi
+          echo "volume a recriar: $VOLUME"
+
+          docker compose stop postgres
+          docker compose rm -f postgres
+          docker volume rm "$VOLUME"
+
+          docker compose up -d postgres
+
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then break; fi
+            [ "$i" = "30" ] && { echo "::error::Postgres não respondeu em 60s depois de recriado."; exit 1; }
+            sleep 2
+          done
+          echo "Postgres de pé, volume novo."
+
+      # A prova real: conectar pela REDE com a senha do .env, do jeito que a API
+      # conecta — não pelo `docker exec`, que não passa pela autenticação.
+      # O valor da senha nunca é impresso.
+      - name: Confirmar que a senha do secret agora autentica pela rede
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          set -a; source .env; set +a
+          if docker compose exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
+              psql -h intereng-postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -c "select 1" >/dev/null; then
+            echo "autenticação pela rede confirmada com a senha do secret atual."
+          else
+            echo "::error::Mesmo depois de recriado, a senha do secret não autenticou. Algo além da senha está errado."
+            exit 1
+          fi
+          TABLES=$(docker exec intereng-postgres psql -U postgres -d competitions -qAt \
+            -c "select count(*) from information_schema.tables where table_schema='public';")
+          echo "tabelas depois de recriar (esperado 0): $TABLES"
+
+      - name: Próximo passo
+        run: |
+          echo "::notice::Volume recriado e senha confirmada. Rode agora o workflow 'CD Deploy Backend API' (workflow_dispatch) para aplicar as migrations e subir a API."
