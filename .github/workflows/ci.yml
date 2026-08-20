@@ -1,0 +1,156 @@
+name: CI API
+
+# Este repositório não tinha nenhuma verificação automática: os workflows que já
+# existiam são de operação (`cd.yml` publica; `diagnostico.yml`,
+# `recarregar-gateway.yml` e `recriar-postgres-vazio.yml` são disparados à mão),
+# e nenhum deles olha para o código. Como merge em `main` publica direto em
+# produção, até agora as specs só rodavam se alguém lembrasse de rodar. Este
+# workflow existe para que o botão de merge fique vermelho quando elas quebram.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+# Sem `paths-ignore` aqui, de propósito — e é a diferença deliberada em relação
+# ao `cd.yml`, que ignora `.github/**` e `**.md`. Lá o filtro evita um deploy
+# desnecessário. Aqui ele criaria um PR eternamente "aguardando verificação":
+# quando um filtro de caminho pula o workflow, o check obrigatório nunca reporta
+# resultado nenhum, e o PR trava esperando algo que não vai chegar. Rodar a suíte
+# num PR só de documentação custa alguns minutos; travar um PR na véspera do
+# evento custa muito mais.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Em PR, só o último commit interessa: cancelar a execução anterior devolve o
+  # resultado mais rápido. Em `push` na `main` não cancelamos, porque cada commit
+  # que entra em `main` vira um deploy, e precisa ter o próprio veredito
+  # registrado em vez de ser engolido pelo commit seguinte.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verificar:
+    name: Typecheck, lint e testes
+    # ubuntu-latest, e NÃO `self-hosted`. O runner self-hosted deste projeto é a
+    # própria VM de produção: é lá que a API, o Postgres e o Redis do evento
+    # estão no ar. Rodar a suíte nele disputaria CPU com o serviço em produção e,
+    # pior, subiria containers de teste na mesma máquina, com as mesmas portas e
+    # a mesma rede Docker dos containers reais. O `cd.yml` usa self-hosted porque
+    # precisa daquela máquina específica para publicar; o CI não precisa de nada
+    # que só exista lá.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      # As versões acompanham o docker-compose.yml. Testar contra outra versão de
+      # banco é testar outro banco.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: competitions
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d competitions"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        # Sem `--requirepass`, ao contrário do compose local. O Redis aqui vive
+        # os poucos minutos do job, dentro da rede do runner, e a senha só
+        # serviria para criar mais uma chance de a URL e o container divergirem.
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # ARMADILHA CONHECIDA DESTE REPOSITÓRIO: a configuração do jest, em
+      # `package.json`, não tem `setupFiles`. Nada carrega o `.env` durante os
+      # testes — cada spec lê `process.env` cru e usa o próprio padrão embutido
+      # quando a variável não existe. Sem declarar as duas abaixo,
+      # `src/common/redis/redis.service.spec.ts` tenta
+      # `redis://localhost:6379`, o ioredis fica reconectando até estourar o
+      # timeout, e o `afterAll` não fecha a conexão: o jest trava e o job cai por
+      # tempo em vez de reportar o teste que falhou. Os serviços acima foram
+      # configurados para bater exatamente com esses padrões, mas declarar aqui é
+      # o que impede que uma troca de porta, de senha ou de nome de banco vire
+      # aquele timeout mudo de novo.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/competitions?schema=public
+      REDIS_URL: redis://localhost:6379
+      # NODE_ENV fica deliberadamente de fora. `src/common/config/env.ts` só
+      # recusa os padrões de desenvolvimento (JWT_SECRET, PII_PEPPER,
+      # PII_ENCRYPTION_KEY, STAFF_INVITE_PASSWORD) quando NODE_ENV é
+      # `production`. Fixar `production` aqui obrigaria a cadastrar segredos de
+      # mentira no CI, que não protegem nada e só teriam o efeito de derrubar o
+      # boot se alguém esquecesse um deles.
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Preparar o Node
+        uses: actions/setup-node@v4
+        with:
+          # A mesma major das três etapas do Dockerfile. O CI que aprova o código
+          # tem de rodar no runtime que vai executá-lo em produção.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # O `prisma generate` precisa vir antes do typecheck, não junto dos passos
+      # de banco. Os tipos do PrismaClient são gerados a partir do
+      # `schema.prisma`, e é contra eles que o `tsc` valida cada consulta: com o
+      # client desatualizado, todo campo novo aparece como "propriedade não
+      # existe" e o erro aponta para o código, não para a causa.
+      - name: Gerar o Prisma Client
+        run: npm run prisma:generate
+
+      # `tsconfig.build.json` e não `tsconfig.json`: é o conjunto de arquivos que
+      # o `nest build` compila, ou seja, exatamente o código que vai para
+      # produção. O tsconfig da raiz inclui também os `*.spec.ts` e o `test/`,
+      # que hoje carregam erros de tipo antigos (nulos não checados, asserções
+      # inválidas). Eles não afetam a execução — o ts-jest não aplica essas
+      # regras — mas fariam este workflow nascer vermelho, e um CI que já começa
+      # vermelho é um CI que todo mundo aprende a ignorar. Apertar os tipos dos
+      # testes é um PR à parte.
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.build.json
+
+      # Sem `--fix`, ao contrário do script `lint` do package.json. Com fix o
+      # passo conserta o arquivo dentro do runner e sai verde: erro de formatação
+      # nunca reprovaria um PR e o CI viraria enfeite. A árvore foi formatada de
+      # uma vez (`npm run format`) para que isto pudesse nascer estrito.
+      - name: Lint
+        run: npx eslint "{src,apps,libs,test}/**/*.ts"
+
+      # `prisma migrate deploy` (e não `db push`) porque é literalmente o mesmo
+      # comando que o `cd.yml` roda contra o banco de produção. O `db push`
+      # construiria o schema direto do `schema.prisma` e passaria verde mesmo com
+      # uma migration faltando — escondendo justamente o erro que derruba o
+      # deploy: código novo esperando uma coluna que nenhuma migration cria.
+      - name: Aplicar as migrations no banco de teste
+        run: npm run prisma:migrate
+
+      # A suíte é `jest` com `maxWorkers: 1`: parte das specs (standings, audit,
+      # authorization guard) grava no Postgres de verdade e limpa depois, então
+      # rodar em paralelo faria uma pisar no estado da outra.
+      - name: Testes
+        run: npm test
+
+      # NÃO incluído aqui: `npm run test:e2e` (o jest de `test/*.e2e-spec.ts`).
+      # Ele usa o mesmo Postgres e caberia neste job quase de graça, mas nunca
+      # rodou em CI e não dá para afirmar que passa hoje. Vale adicionar assim
+      # que alguém confirmar a suíte verde localmente — é meia dúzia de linhas.

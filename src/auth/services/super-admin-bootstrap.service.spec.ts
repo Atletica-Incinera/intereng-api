@@ -15,10 +15,11 @@ describe('SuperAdminBootstrapService', () => {
     },
   };
 
-  const mockConfigService: { bootstrapSuperAdmin: { email: string; password: string } | undefined } =
-    {
-      bootstrapSuperAdmin: undefined,
-    };
+  const mockConfigService: {
+    bootstrapSuperAdmin: { email: string; password: string } | undefined;
+  } = {
+    bootstrapSuperAdmin: undefined,
+  };
 
   const mockHashService = {
     hash: jest.fn(),
@@ -49,7 +50,10 @@ describe('SuperAdminBootstrapService', () => {
   });
 
   it('does nothing when a super admin already exists', async () => {
-    mockConfigService.bootstrapSuperAdmin = { email: 'chefe@intereng.com', password: 'senhaLonga123' };
+    mockConfigService.bootstrapSuperAdmin = {
+      email: 'chefe@intereng.com',
+      password: 'senhaLonga123',
+    };
     mockPrismaService.staff.count.mockResolvedValue(1);
 
     await expect(service.run()).resolves.toBe('already-exists');
@@ -57,7 +61,10 @@ describe('SuperAdminBootstrapService', () => {
   });
 
   it('creates the first super admin already requiring a password change', async () => {
-    mockConfigService.bootstrapSuperAdmin = { email: 'chefe@intereng.com', password: 'senhaLonga123' };
+    mockConfigService.bootstrapSuperAdmin = {
+      email: 'chefe@intereng.com',
+      password: 'senhaLonga123',
+    };
     mockPrismaService.staff.count.mockResolvedValue(0);
     mockHashService.hash.mockResolvedValue('hashDaSenha');
     mockPrismaService.staff.create.mockResolvedValue({ id: '1', email: 'chefe@intereng.com' });

@@ -86,7 +86,9 @@ describe('GlobalExceptionFilter', () => {
     // e NoActiveEditionException herda de NotFoundException — sem a entrada
     // própria no mapa, cairia em NOT_FOUND, indistinguível pelo front de
     // "edição não existe".
-    const exception = new NoActiveEditionException('Não foi possível determinar a competição ativa.');
+    const exception = new NoActiveEditionException(
+      'Não foi possível determinar a competição ativa.',
+    );
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -134,6 +136,22 @@ describe('GlobalExceptionFilter', () => {
 
     expect(responseStatus).toBe(HttpStatus.UNAUTHORIZED);
     expect(responseBody.error.code).toBe('UNAUTHORIZED');
+  });
+
+  // O throttler de login e o teto de conexões SSE lançam `HttpException` crua
+  // com 429. Sem esta entrada no switch a resposta saía como INTERNAL_ERROR, e
+  // quem apanhou do limite não tinha como distinguir a própria pressa de uma
+  // falha da API.
+  it('rotula o 429 como RATE_LIMITED, e não como falha do servidor', () => {
+    const exception = new HttpException(
+      'Tentativas demais em pouco tempo.',
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(responseStatus).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(responseBody?.error.code).toBe('RATE_LIMITED');
   });
 
   it('should handle HttpException with string payload response', () => {

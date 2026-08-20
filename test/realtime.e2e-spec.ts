@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DomainEvents, MatchEventCreatedEvent } from '../src/common/events';
 import { RedisService } from '../src/common/redis/redis.service';
+import { JwtService } from '@nestjs/jwt';
 import http from 'http';
 
 describe('Realtime Module (e2e)', () => {
@@ -16,6 +17,7 @@ describe('Realtime Module (e2e)', () => {
   let redisService: RedisService;
   let server: http.Server;
   let port: number;
+  let authorization: string;
 
   beforeAll(async () => {
     setupTestEnv();
@@ -41,6 +43,10 @@ describe('Realtime Module (e2e)', () => {
 
     eventEmitter = app.get<EventEmitter2>(EventEmitter2);
     redisService = app.get<RedisService>(RedisService);
+    // O canal de partida deixou de ser público: ele entrega o payload bruto do
+    // evento, e nenhuma tela o consome sem sessão. Estes testes precisam de um
+    // token para continuar exercitando o stream em si, que é o objeto deles.
+    authorization = `Bearer ${app.get(JwtService).sign({ sub: 'staff-e2e', isSuperAdmin: true, mustChangePassword: false })}`;
 
     // Clear redis for stream:match:test-match
     await redisService.getClient().del('stream:match:test-match');
@@ -70,6 +76,7 @@ describe('Realtime Module (e2e)', () => {
       port,
       path: `/api/v1/matches/${matchId}/stream`,
       method: 'GET',
+      headers: { authorization },
     });
 
     const receivedChunks: string[] = [];
@@ -183,6 +190,7 @@ describe('Realtime Module (e2e)', () => {
       path: `/api/v1/matches/${matchId}/stream`,
       method: 'GET',
       headers: {
+        authorization,
         'last-event-id': id1,
       },
     });

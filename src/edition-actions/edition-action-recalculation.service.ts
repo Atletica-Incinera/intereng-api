@@ -177,6 +177,7 @@ export class EditionActionRecalculationService {
         scoreFor: row.scoreFor,
         scoreAgainst: row.scoreAgainst,
         points: row.points,
+        disciplinary: row.disciplinary,
         rank: ranks.get(entryId) ?? null,
       };
     });

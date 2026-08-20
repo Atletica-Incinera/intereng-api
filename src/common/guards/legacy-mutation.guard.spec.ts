@@ -36,7 +36,9 @@ describe('LegacyMutationGuard', () => {
 
   it('continua recusando o resto de /competitions — só /bootstrap é exceção', () => {
     expect(() => guard.canActivate(contextFor('POST', '/competitions'))).toThrow(GoneException);
-    expect(() => guard.canActivate(contextFor('POST', '/competitions/intereng/editions'))).toThrow(GoneException);
+    expect(() => guard.canActivate(contextFor('POST', '/competitions/intereng/editions'))).toThrow(
+      GoneException,
+    );
   });
 
   it('não interfere em métodos de leitura', () => {

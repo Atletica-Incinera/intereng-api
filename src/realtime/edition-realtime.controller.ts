@@ -6,6 +6,7 @@ import {
   catchError,
   concat,
   filter,
+  finalize,
   from,
   interval,
   map,
@@ -15,20 +16,53 @@ import {
   tap,
 } from 'rxjs';
 import { EditionRevisionEvent, RedisStreamEvent, RealtimeService } from './realtime.service';
+import { SseConnectionLimiter } from './sse-connection-limiter.service';
 
 const HEARTBEAT_INTERVAL_MILLISECONDS = 20_000;
 
+/**
+ * Canal público de invalidação da edição.
+ *
+ * Segue aberto a quem não está autenticado de propósito: o espectador do
+ * ginásio precisa ver o placar mudar sozinho, e o que trafega aqui é apenas
+ * `{ editionId, revision }` — um contador. Nenhum dado da edição passa pelo
+ * stream; quem recebe a revisão vai buscar o snapshot pela rota que a sua
+ * sessão (ou a falta dela) permite. Exigir token aqui quebraria o público sem
+ * esconder nada, porque a revisão não diz o que mudou.
+ *
+ * O que protege o processo, então, é teto: por origem e global.
+ */
 @Controller('editions')
 export class EditionRealtimeController {
   private readonly logger = new Logger(EditionRealtimeController.name);
 
-  constructor(private readonly realtimeService: RealtimeService) {}
+  constructor(
+    private readonly realtimeService: RealtimeService,
+    private readonly connectionLimiter: SseConnectionLimiter,
+  ) {}
 
   @Sse(':editionId/stream')
   @Header('Cache-Control', 'no-cache, no-transform')
   @Header('Connection', 'keep-alive')
   @Header('X-Accel-Buffering', 'no')
   stream(@Param('editionId') editionId: string, @Req() request: Request): Observable<MessageEvent> {
+    // Reservar a vaga antes de montar o stream: estourar o teto precisa virar
+    // uma resposta 429, não um stream que abre e morre logo depois.
+    const release = this.connectionLimiter.acquireForOrigin(request);
+    // A queda de rede nem sempre chega como unsubscribe imediato; o `close` da
+    // requisição chega sempre. A liberação é idempotente, então os dois podem
+    // acontecer.
+    request.on('close', release);
+
+    try {
+      return this.editionStream(editionId, request).pipe(finalize(release));
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  private editionStream(editionId: string, request: Request): Observable<MessageEvent> {
     const header = request.headers['last-event-id'];
     const lastEventId = this.realtimeService.normalizeLastEventId(
       Array.isArray(header) ? header[0] : header,

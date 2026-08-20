@@ -74,6 +74,8 @@ export interface PhaseStandingSnapshotDto {
   scoreFor: number;
   scoreAgainst: number;
   points: number;
+  /** Acumulado de fair play; o desempate `fair-play` ordena por ele. */
+  disciplinary: number;
   rank: number | null;
 }
 

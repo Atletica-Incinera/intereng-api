@@ -581,6 +581,13 @@ model PhaseStanding {
   scoreFor     Float @default(0)
   scoreAgainst Float @default(0)
   points       Float @default(0)
+  // Soma dos pesos disciplinares dos eventos da fase. É inteiro, e não Float
+  // como os placares acima, porque o peso de cada evento é um inteiro 0..10 no
+  // regulamento — a soma nunca fraciona. Precisa ficar gravada: o desempate por
+  // fair play já ordenava por este número e o descartava em seguida, então a
+  // tela exibia zero para todo mundo e uma colocação contestada não tinha como
+  // ser auditada.
+  disciplinary Int   @default(0)
   rank         Int?
 
   updatedAt DateTime @updatedAt

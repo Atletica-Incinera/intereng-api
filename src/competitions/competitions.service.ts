@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../common/audit/audit.service';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
@@ -8,6 +13,7 @@ import { BootstrapCompetitionDto } from './dto/bootstrap-competition.dto';
 import { paginate, PaginatedResult } from '../common/utils/paginate';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { Competition, CompetitionEdition, EditionStatus } from '@prisma/client';
+import { seedDefaultOverallMetrics } from '../edition-actions/default-overall-metrics';
 
 @Injectable()
 export class CompetitionsService {
@@ -65,6 +71,11 @@ export class CompetitionsService {
           isActive: true,
         },
       });
+      // O sistema recém-criado precisa nascer pontuando: sem métrica a
+      // classificação geral fica zerada e a bonificação do pódio não tem o que
+      // aplicar. Só cobre instalação nova — para a edição que já existe existe
+      // a ação ranking/seedDefaultMetrics.
+      await seedDefaultOverallMetrics(transaction, edition.id);
 
       await this.audit.record(
         {

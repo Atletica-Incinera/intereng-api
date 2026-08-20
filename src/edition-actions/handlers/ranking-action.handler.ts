@@ -10,6 +10,7 @@ import {
   requireActionReason,
 } from '../action-validation';
 import { mapAwardOrigin, mapOverallPosition } from '../action-mappers';
+import { seedDefaultOverallMetrics } from '../default-overall-metrics';
 import { EditionActionAuditDto } from '../dto/edition-action.dto';
 import { ActionMutationResult, EditionActionContext } from '../edition-actions.types';
 
@@ -141,6 +142,30 @@ export class RankingActionHandler {
       data: { removedAt: new Date() },
     });
     return { entityType: 'OverallMetric', entityId: metric.id };
+  }
+
+  /**
+   * Cria o catálogo padrão de métricas numa edição que ainda não pontua nada.
+   *
+   * Existe porque semear no caminho de criação não alcança quem já foi criado:
+   * a edição de produção nasceu antes desta rotina e ficaria sem nenhuma
+   * métrica — classificação geral zerada e bonificação de pódio sem o que
+   * aplicar. Esta é a ação que o operador dispara pela tela para consertar isso.
+   */
+  async seedDefaultMetrics(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['editionId']);
+    const editionId = actionId(payload, 'editionId', 'O ID da edição');
+    if (editionId !== context.edition.id) {
+      throw new ConflictException('As métricas padrão devem pertencer à edição da rota.');
+    }
+    await this.assertRankingOpen(context);
+    await seedDefaultOverallMetrics(context.transaction, context.edition.id);
+    // A ação age sobre o catálogo inteiro da edição, e num segundo clique não
+    // cria linha nenhuma: o ID auditável que sempre existe é o da edição.
+    return { entityType: 'OverallMetric', entityId: context.edition.id };
   }
 
   async addAwards(

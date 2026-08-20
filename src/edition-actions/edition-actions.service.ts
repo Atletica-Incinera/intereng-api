@@ -126,6 +126,12 @@ export class EditionActionsService {
       'ranking/updateMetric': (context, payload) => rankingActions.updateMetric(context, payload),
       'ranking/removeMetric': (context, payload, audit) =>
         rankingActions.removeMetric(context, payload, audit),
+      // Fora de GLOBAL_ACTIONS e de MANAGER_ACTIONS de propósito: cai no mesmo
+      // gate das outras ações de métrica, liberada para super admin e admin de
+      // edição (escopo full) e recusada ao gestor de modalidade, que não
+      // responde pelo ranking geral.
+      'ranking/seedDefaultMetrics': (context, payload) =>
+        rankingActions.seedDefaultMetrics(context, payload),
       'ranking/addAwards': (context, payload, audit) =>
         rankingActions.addAwards(context, payload, audit),
       'ranking/revokeAward': (context, payload, audit) =>

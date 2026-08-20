@@ -62,7 +62,7 @@ describe('PublicController', () => {
   // recebiam a palavra crua e devolviam 404. Resolver antes de chamar o service
   // também mantém o cache indexado pela edição real, e não pelo literal.
   it('troca o alias active pelo ID real antes de consultar as partidas ao vivo', async () => {
-    jest.spyOn(service, 'getLiveMatches').mockResolvedValue([] as any);
+    jest.spyOn(service, 'getLiveMatches').mockResolvedValue([]);
 
     await controller.getLiveMatches('active');
 
@@ -71,7 +71,7 @@ describe('PublicController', () => {
   });
 
   it('troca o alias active pelo ID real antes de consultar a agenda', async () => {
-    jest.spyOn(service, 'getSchedule').mockResolvedValue([] as any);
+    jest.spyOn(service, 'getSchedule').mockResolvedValue([]);
 
     await controller.getSchedule('active', '2026-10-13');
 
@@ -79,7 +79,7 @@ describe('PublicController', () => {
   });
 
   it('não resolve nada quando o ID já é explícito', async () => {
-    jest.spyOn(service, 'getLiveMatches').mockResolvedValue([] as any);
+    jest.spyOn(service, 'getLiveMatches').mockResolvedValue([]);
 
     await controller.getLiveMatches('intereng-2026');
 
