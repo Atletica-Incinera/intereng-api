@@ -1,0 +1,83 @@
+name: Inspecionar gateway (somente leitura)
+
+# Serve para uma coisa só: enxergar a configuração do nginx que roteia os três
+# sites da VM antes de propor qualquer mudança nela. A issue #11 (rota do
+# storage, upload de logo de equipe) depende de acrescentar um `location`, e
+# escrever esse bloco às cegas num nginx compartilhado é como o
+# `pwa-torneios-web` e o `incinera-web` — que não pertencem a este repositório —
+# vão ao chão junto.
+#
+# POR QUE EXISTE, se já há SSH para a VM: a conta pessoal que entra por SSH é
+# usuário comum de domínio, sem grupo `docker` e sem sudo. Ela não alcança o
+# container do gateway. O runner self-hosted, sim — é ele que já executa
+# `docker exec incinera-gateway nginx -s reload` no `recarregar-gateway.yml`.
+#
+# O `diagnostico.yml` deveria ter mostrado isso na seção 8 e não mostrou: o laço
+# de lá procura containers cujo nome case com `nginx|traefik|caddy|proxy`, e
+# `incinera-gateway` não casa com nenhum desses. O container sempre esteve
+# acessível; a busca é que passou por cima. Aqui o nome é dito por extenso.
+#
+# SOMENTE LEITURA: nenhum passo escreve, recarrega ou reinicia nada. O que sai
+# no log é configuração de roteamento (caminhos e upstreams), não segredo — mas
+# vale a consciência de que fica registrado no log da execução.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspecionar:
+    name: Ler a configuração do nginx do gateway
+    runs-on: self-hosted
+    timeout-minutes: 5
+
+    steps:
+      - name: Ler
+        continue-on-error: true
+        run: |
+          set -u
+          GW=incinera-gateway
+          OUT=gateway.txt
+
+          exec > >(tee "$OUT") 2>&1
+
+          titulo() { printf '\n\n=== %s ===\n' "$1"; }
+
+          titulo "0. O container esta no ar?"
+          docker ps --filter "name=^${GW}$" --format '{{.Names}}\t{{.Image}}\t{{.Status}}' || true
+
+          titulo "1. Volumes montados (onde a configuracao vive de verdade)"
+          # Se houver bind mount, o arquivo esta no host e sobrevive a recriar o
+          # container. Se nao houver, ele foi assado na imagem — e ai qualquer
+          # edicao se perde na proxima recriacao, o que muda o plano por inteiro.
+          docker inspect "$GW" --format '{{range .Mounts}}{{.Type}}  {{.Source}} -> {{.Destination}}  (rw={{.RW}}){{"\n"}}{{end}}' || true
+
+          titulo "2. Que arquivos de configuracao existem"
+          docker exec "$GW" sh -c 'ls -la /etc/nginx/ /etc/nginx/conf.d/ 2>&1' || true
+
+          titulo "3. nginx.conf"
+          docker exec "$GW" sh -c 'cat /etc/nginx/nginx.conf 2>&1' || true
+
+          titulo "4. conf.d/*.conf — o roteamento dos tres sites"
+          docker exec "$GW" sh -c 'for f in /etc/nginx/conf.d/*.conf; do printf "\n----- %s -----\n" "$f"; cat "$f"; done 2>&1' || true
+
+          titulo "5. Ja existe alguma rota de storage?"
+          docker exec "$GW" sh -c 'grep -rn "intereng-storage\|minio" /etc/nginx/ 2>&1 || echo "(nenhuma mencao — confirma que a rota nao existe)"' || true
+
+          titulo "6. O gateway alcanca o MinIO pela rede interna?"
+          # O compose poe o minio nas duas redes de proposito. Se este passo
+          # falhar, o `location` sozinho nao resolveria nada.
+          docker exec "$GW" sh -c 'nc -z -w 3 intereng-minio 9000 && echo "alcanca intereng-minio:9000" || echo "NAO alcanca intereng-minio:9000"' 2>&1 || true
+
+          titulo "7. Teste de sintaxe atual (linha de base para comparar depois)"
+          docker exec "$GW" nginx -t 2>&1 || true
+
+          titulo "FIM"
+
+      - name: Publicar o resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway
+          path: gateway.txt
+          if-no-files-found: warn
+          retention-days: 14
