@@ -11,6 +11,7 @@ describe('CompetitionsService.bootstrap', () => {
   const mockTransactionClient = {
     competition: { count: jest.fn(), create: jest.fn() },
     competitionEdition: { create: jest.fn() },
+    overallMetric: { count: jest.fn(), createMany: jest.fn() },
   };
 
   const mockPrismaService = {
@@ -50,6 +51,8 @@ describe('CompetitionsService.bootstrap', () => {
       id: 'edition-1',
       year: 2027,
     });
+    mockTransactionClient.overallMetric.count.mockResolvedValue(0);
+    mockTransactionClient.overallMetric.createMany.mockResolvedValue({ count: 4 });
 
     const result = await service.bootstrap(dto, 'staff-1');
 
@@ -57,13 +60,24 @@ describe('CompetitionsService.bootstrap', () => {
       expect.objectContaining({ data: expect.objectContaining({ isActive: true }) }),
     );
     expect(mockTransactionClient.competitionEdition.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ isActive: true, competitionId: 'comp-1' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ isActive: true, competitionId: 'comp-1' }),
+      }),
     );
     // Sem isto o pipeline de ações também não conseguiria criar a segunda
     // competição: a auditoria precisa refletir a criação, como qualquer ação.
     expect(mockAuditService.record).toHaveBeenCalledWith(
       expect.objectContaining({ staffId: 'staff-1', action: 'competition/bootstrap' }),
       mockTransactionClient,
+    );
+    // Sem métrica a classificação geral do sistema novo nasceria zerada e a
+    // bonificação automática do pódio não teria o que aplicar.
+    expect(mockTransactionClient.overallMetric.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ editionId: 'edition-1', clientId: 'metric-champion' }),
+        ]),
+      }),
     );
     expect(result).toEqual({ id: 'edition-1', year: 2027 });
   });

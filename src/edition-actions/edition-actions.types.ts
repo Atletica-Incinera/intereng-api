@@ -27,6 +27,7 @@ export const EDITION_ACTION_TYPES = [
   'ranking/addMetric',
   'ranking/updateMetric',
   'ranking/removeMetric',
+  'ranking/seedDefaultMetrics',
   'ranking/addAwards',
   'ranking/revokeAward',
   'ranking/close',

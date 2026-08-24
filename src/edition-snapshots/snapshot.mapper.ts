@@ -316,6 +316,7 @@ export class SnapshotMapper {
           scoreFor: true,
           scoreAgainst: true,
           points: true,
+          disciplinary: true,
           rank: true,
         },
       }),
@@ -399,6 +400,7 @@ export class SnapshotMapper {
         scoreFor: standing.scoreFor,
         scoreAgainst: standing.scoreAgainst,
         points: standing.points,
+        disciplinary: standing.disciplinary,
         rank: standing.rank,
       });
       standingsByPhase.set(standing.phaseId, mapped);

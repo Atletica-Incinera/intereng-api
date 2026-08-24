@@ -2,6 +2,7 @@ import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -31,6 +32,8 @@ import { ConfigModule } from './common/config/config.module';
 import { env } from './common/config/env';
 import { UploadsModule } from './uploads/uploads.module';
 import { LegacyMutationGuard } from './common/guards/legacy-mutation.guard';
+import { AuthThrottlerGuard } from './auth/guards/auth-throttler.guard';
+import { authThrottlerOptions } from './auth/guards/auth-throttler.config';
 
 @Module({
   imports: [
@@ -44,6 +47,11 @@ import { LegacyMutationGuard } from './common/guards/legacy-mutation.guard';
         url: env.redisUrl,
       }),
     }),
+    // Contagem em memória, de propósito: a API roda em um processo só, e um
+    // armazenamento compartilhado a mais é uma dependência a mais para cair na
+    // véspera do evento. Se um dia houver mais de uma instância, o limite passa
+    // a valer por instância — e aí vale trocar pelo storage de Redis.
+    ThrottlerModule.forRoot(authThrottlerOptions),
 
     AuthModule,
     CompetitionsModule,
@@ -70,6 +78,10 @@ import { LegacyMutationGuard } from './common/guards/legacy-mutation.guard';
     {
       provide: APP_GUARD,
       useClass: LegacyMutationGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AuthThrottlerGuard,
     },
     {
       provide: APP_INTERCEPTOR,

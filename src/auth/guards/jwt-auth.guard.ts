@@ -66,9 +66,7 @@ export class JwtAuthGuard implements CanActivate {
     // trataria como sessão expirada — derrubando a pessoa para o login em vez
     // de levá-la à troca de senha.
     if (request.user.mustChangePassword && !this.allowsPasswordChangePending(context)) {
-      throw new ForbiddenException(
-        'É necessário trocar a senha inicial antes de usar o sistema.',
-      );
+      throw new ForbiddenException('É necessário trocar a senha inicial antes de usar o sistema.');
     }
 
     return true;

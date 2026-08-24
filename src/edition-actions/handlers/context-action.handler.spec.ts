@@ -3,7 +3,9 @@ import { EditionActionContext } from '../edition-actions.types';
 import { ContextActionHandler } from './context-action.handler';
 
 describe('ContextActionHandler.promoteSuperAdmin', () => {
-  const mockConfig = { staffInvitePassword: 'convite-inicial-forte-123' } as unknown as ConfigService;
+  const mockConfig = {
+    staffInvitePassword: 'convite-inicial-forte-123',
+  } as unknown as ConfigService;
   const handler = new ContextActionHandler(mockConfig);
 
   function contextWith(transaction: unknown): EditionActionContext {

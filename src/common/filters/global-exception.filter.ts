@@ -89,6 +89,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           case HttpStatus.CONFLICT:
             code = 'CONFLICT';
             break;
+          // O 429 não tem classe própria no Nest: o throttler de login e o teto
+          // de conexões SSE lançam `HttpException` crua, que caía no `default` e
+          // saía rotulada como falha do servidor. Quem apanha do limite precisa
+          // saber que o problema é a frequência da tentativa, não a API — e o
+          // cliente não deve tratar a própria pressa como incidente.
+          case HttpStatus.TOO_MANY_REQUESTS:
+            code = 'RATE_LIMITED';
+            break;
           default:
             code = 'INTERNAL_ERROR';
         }

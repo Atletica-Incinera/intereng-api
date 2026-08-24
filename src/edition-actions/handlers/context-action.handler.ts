@@ -22,6 +22,7 @@ import {
   optionalActionString,
 } from '../action-validation';
 import { EDITION_STATUS_VALUES, mapEditionStatus } from '../action-mappers';
+import { seedDefaultOverallMetrics } from '../default-overall-metrics';
 import { ActionMutationResult, EditionActionContext } from '../edition-actions.types';
 
 const COMPETITION_FIELDS = ['id', 'name', 'slug', 'active'] as const;
@@ -122,6 +123,10 @@ export class ContextActionHandler {
         isActive: editionData.active,
       },
     });
+    // Uma edição sem métrica não pontua a classificação geral e não dá o que
+    // aplicar à bonificação do pódio. Semear aqui é o que evita que a próxima
+    // edição repita o buraco em que a de produção nasceu.
+    await seedDefaultOverallMetrics(context.transaction, editionData.id);
     return {
       entityType: 'Competition',
       entityId: competitionId,
@@ -233,6 +238,7 @@ export class ContextActionHandler {
         isActive: data.active,
       },
     });
+    await seedDefaultOverallMetrics(context.transaction, data.id);
     return {
       entityType: 'CompetitionEdition',
       entityId: data.id,
