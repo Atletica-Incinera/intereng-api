@@ -38,6 +38,12 @@ const DISCIPLINE_FIELDS = [
   'mode',
   'tournaments',
   'tone',
+  // O snapshot emite `startedAt` da modalidade, e o cliente devolve o objeto
+  // inteiro ao alterar qualquer coisa nela. Aceito para não recusar com 400 o
+  // que o próprio servidor mandou, e ignorado aqui porque quem o define é o
+  // início da primeira partida — mesmo tratamento já dado a `standings` da fase
+  // em category-action.handler.ts.
+  'startedAt',
 ] as const;
 
 @Injectable()

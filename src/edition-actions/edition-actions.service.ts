@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ResolvedEdition } from '../edition-snapshots/active-edition.resolver';
+import { NoActiveEditionException } from '../edition-snapshots/no-active-edition.exception';
 import {
   FrontendSnapshotDto,
   SnapshotEnvelopeDto,
@@ -153,6 +154,44 @@ export class EditionActionsService {
     };
   }
 
+  /**
+   * A edição em que a ação roda — ou a mais recente, quando a ação é global.
+   *
+   * Toda ação responde com um snapshot de edição, e é esse envelope, não a
+   * gravação, que obriga a existir uma edição resolvível. Para `competition/*`,
+   * `edition/*` e `staff/promoteSuperAdmin` isso é acoplamento puro: promover um
+   * super administrador não toca dado de edição nenhum, e mesmo assim falhava
+   * com "não foi possível determinar a competição ativa" sempre que não houvesse
+   * competição ativa — exatamente o estado entre duas edições, e o estado em que
+   * ter um segundo super admin mais importa.
+   *
+   * A ressalva que fica: com ZERO edições no banco não há envelope a devolver, e
+   * a recusa continua. Sair disso é o `/competitions/bootstrap`, que existe para
+   * esse fim.
+   */
+  private async resolveEditionForAction(
+    transaction: Prisma.TransactionClient,
+    editionId: string,
+    // Ainda cru: o tipo só é validado adiante, em `actionType()`. Aqui basta
+    // saber se ele consta do conjunto global.
+    actionType: string,
+  ) {
+    try {
+      return await this.snapshots.resolveEditionInTransaction(transaction, editionId);
+    } catch (error) {
+      const isGlobal = (GLOBAL_ACTIONS as ReadonlySet<string>).has(actionType);
+      if (!(error instanceof NoActiveEditionException) || !isGlobal) {
+        throw error;
+      }
+      const fallback = await transaction.competitionEdition.findFirst({
+        orderBy: [{ startDate: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      });
+      if (!fallback) throw error;
+      return this.snapshots.resolveEditionInTransaction(transaction, fallback.id);
+    }
+  }
+
   getRegisteredActionTypes(): readonly EditionActionType[] {
     return EDITION_ACTION_TYPES;
   }
@@ -226,10 +265,7 @@ export class EditionActionsService {
               };
             }
 
-            const edition = await this.snapshots.resolveEditionInTransaction(
-              transaction,
-              editionId,
-            );
+            const edition = await this.resolveEditionForAction(transaction, editionId, action.type);
             await this.advisoryLock(transaction, `edition-action:edition:${edition.id}`);
             const scope = await this.snapshots.resolvePrivateScopeInTransaction(
               transaction,
