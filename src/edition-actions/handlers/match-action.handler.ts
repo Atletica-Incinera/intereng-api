@@ -113,6 +113,15 @@ const FINISH_FIELDS = [
   'scoreB',
   'tiebreak',
 ] as const;
+/**
+ * Desvio máximo tolerado entre o relógio do aparelho e o do servidor.
+ *
+ * Quinze minutos cobre com folga o erro de um telefone sem sincronização
+ * automática e ainda barra a data claramente errada — que é o caso em que
+ * confiar no cliente gravaria um cronômetro com horas de jogo já corridas.
+ */
+const MAX_CLIENT_CLOCK_SKEW_MS = 15 * 60 * 1000;
+
 const OPERATOR_LOCK_MS = 120_000;
 
 interface StoredMatchContext {
@@ -347,6 +356,17 @@ export class MatchActionHandler {
     );
     const startedAt = new Date();
     const hasClock = regulation.clockMode !== 'none';
+    // O cronômetro corre no aparelho do mesário: a tela calcula o decorrido como
+    // `Date.now() - runningSince`. Carimbar o início aqui misturava as duas
+    // fontes, e a diferença virava o tempo já corrido no instante em que a
+    // partida começa. Num aparelho adiantado mais que a duração da etapa, o
+    // relógio nascia estourado, o fim de período disparava na hora e o primeiro
+    // tempo terminava antes de começar — para o mesário e para quem assiste.
+    //
+    // Todas as outras transições (pausar, retomar, avançar etapa, prorrogação)
+    // já gravam o carimbo do cliente, em `updateClock`. Aceitar aqui também é o
+    // que deixa a conta inteira na mesma base de tempo.
+    const clientRunningSince = this.acceptClientClockStart(patch, startedAt);
     const updated = await context.transaction.match.updateMany({
       where: {
         id,
@@ -364,7 +384,7 @@ export class MatchActionHandler {
         startedById: context.user.id,
         startNote: startNote || null,
         paused: false,
-        runningSince: hasClock ? startedAt : null,
+        runningSince: hasClock ? clientRunningSince : null,
         operatorId: context.user.id,
         operatorDeviceId,
         operatorName: context.actorName,
@@ -1631,6 +1651,28 @@ export class MatchActionHandler {
         );
       }
     }
+  }
+
+  /**
+   * Início do cronômetro carimbado pelo aparelho que opera, com limite.
+   *
+   * Aceitar o carimbo do cliente é o que mantém o decorrido na mesma base de
+   * tempo do `Date.now()` que o conta. Mas aceitar sem limite deixaria um
+   * aparelho com a data completamente errada gravar um início no ano passado —
+   * e aí o relógio nasceria com horas de jogo. Fora da janela, vale o do
+   * servidor: perde-se a precisão do desvio, e não a sanidade do dado.
+   */
+  private acceptClientClockStart(patch: Record<string, unknown>, serverNow: Date): Date {
+    const informed = optionalActionString(patch, 'runningSince', 'O início do cronômetro', {
+      min: 10,
+      max: 80,
+    });
+    if (!informed) return serverNow;
+    const parsed = new Date(informed);
+    if (Number.isNaN(parsed.getTime())) return serverNow;
+    return Math.abs(parsed.getTime() - serverNow.getTime()) <= MAX_CLIENT_CLOCK_SKEW_MS
+      ? parsed
+      : serverNow;
   }
 
   private jsonRecord(value: unknown): Record<string, unknown> | undefined {
