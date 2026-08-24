@@ -64,9 +64,7 @@ jobs:
           # Sem isto o roteamento nao se le por inteiro: cada bloco de
           # incinera.conf faz `include .../proxy-params.conf`, e propor um
           # location novo sem saber o que esse arquivo define e adivinhar.
-          docker exec "$GW" sh -c 'for f in /etc/nginx/includes/*.conf; do printf "
------ %s -----
-" "$f"; cat "$f"; done 2>&1' || true
+          docker exec "$GW" sh -c 'for f in /etc/nginx/includes/*.conf; do echo; echo "----- $f -----"; cat "$f"; done 2>&1' || true
 
           titulo "5. Ja existe alguma rota de storage?"
           docker exec "$GW" sh -c 'grep -rn "intereng-storage\|minio" /etc/nginx/ 2>&1 || echo "(nenhuma mencao — confirma que a rota nao existe)"' || true
