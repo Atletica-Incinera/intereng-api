@@ -1,0 +1,106 @@
+name: Redefinir senha de uma conta de staff (producao)
+
+# ATENCAO: ESCREVE em producao, e escreve em autenticacao.
+#
+# POR QUE EXISTE: a API nao tem recuperacao de senha. Ha apenas
+# POST /auth/change-password, que exige a senha atual. Nao ha reset e nao ha
+# envio de e-mail. Em 25/08/2026 o unico super administrador ficou sem acesso
+# seis dias depois de criar a conta, sem nenhum caminho de volta.
+#
+# Isto e um remendo operacional, nao a solucao. A solucao e a API ter
+# recuperacao de senha. Enquanto nao tiver, este workflow e a diferenca entre
+# "operador perdeu a senha no dia do jogo" ter resposta ou nao ter.
+#
+# O QUE FAZ: grava na conta informada o hash da senha vinda do secret
+# SENHA_TEMPORARIA e marca mustChangePassword, que obriga a troca no primeiro
+# acesso. Recusa se a conta nao existir.
+#
+# O QUE NAO FAZ: nao escolhe senha, nao imprime senha nem hash, nao mexe em
+# papel, nao concede super admin, nao toca em outra conta.
+#
+# A senha vem de secret, nunca de input: input aparece em claro na tela da
+# execucao. Secret e mascarado no log.
+#
+# Depois de usar, troque o valor do secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: E-mail da conta que perdeu o acesso
+        required: true
+        type: string
+      confirmo:
+        description: Digite REDEFINIR para confirmar
+        required: true
+        type: string
+
+jobs:
+  redefinir:
+    name: Gravar senha temporaria e exigir troca
+    runs-on: self-hosted
+    timeout-minutes: 5
+
+    steps:
+      - name: Conferir a confirmacao e o secret
+        env:
+          CONFIRMO: ${{ inputs.confirmo }}
+          SENHA: ${{ secrets.SENHA_TEMPORARIA }}
+        run: |
+          set -eu
+          if [ "$CONFIRMO" != "REDEFINIR" ]; then
+            echo "::error::Confirmacao ausente. Digite REDEFINIR no campo de confirmacao."
+            exit 1
+          fi
+          if [ -z "${SENHA:-}" ]; then
+            echo "::error::Defina o secret SENHA_TEMPORARIA (entre 8 e 72 caracteres)."
+            exit 1
+          fi
+          tamanho=$(printf '%s' "$SENHA" | wc -c)
+          if [ "$tamanho" -lt 8 ] || [ "$tamanho" -gt 72 ]; then
+            echo "::error::SENHA_TEMPORARIA precisa ter entre 8 e 72 bytes; tem $tamanho."
+            exit 1
+          fi
+          echo "confirmacao aceita; disparado por ${{ github.actor }}"
+
+      - name: Conferir que a conta existe
+        env:
+          ALVO: ${{ inputs.email }}
+        run: |
+          set -eu
+          escapado=$(printf '%s' "$ALVO" | sed "s/'/''/g")
+          achou=$(docker exec -i intereng-postgres psql -U postgres -d competitions -tAc "SELECT count(*) FROM staff WHERE lower(email) = lower('$escapado')")
+          if [ "$achou" != "1" ]; then
+            echo "::error::Nenhuma conta com esse e-mail. Nada foi alterado."
+            exit 1
+          fi
+          echo "conta encontrada"
+
+      - name: Gravar a senha temporaria
+        env:
+          ALVO: ${{ inputs.email }}
+          SENHA: ${{ secrets.SENHA_TEMPORARIA }}
+        run: |
+          set -eu
+          # O hash sai do mesmo bcryptjs que a API usa no login. A senha entra
+          # por stdin, nunca por argumento: argumento de `docker exec` aparece
+          # em `ps` dentro da VM.
+          hash=$(printf '%s' "$SENHA" | docker exec -i intereng-api node -e 'let e="";process.stdin.on("data",p=>{e+=p});process.stdin.on("end",()=>{process.stdout.write(require("bcryptjs").hashSync(e,10))})')
+          case "$hash" in
+            '$2'*) : ;;
+            *) echo "::error::O hash gerado nao tem formato bcrypt. Nada foi alterado."; exit 1 ;;
+          esac
+          escapado=$(printf '%s' "$ALVO" | sed "s/'/''/g")
+          docker exec -i intereng-postgres psql -U postgres -d competitions -v ON_ERROR_STOP=1 -tAc "UPDATE staff SET \"passwordHash\" = '$hash', \"mustChangePassword\" = true WHERE lower(email) = lower('$escapado')"
+          echo "senha temporaria gravada"
+
+      - name: Conferir o resultado
+        env:
+          ALVO: ${{ inputs.email }}
+        run: |
+          set -eu
+          escapado=$(printf '%s' "$ALVO" | sed "s/'/''/g")
+          docker exec -i intereng-postgres psql -U postgres -d competitions -c "SELECT email, \"isSuperAdmin\" AS super_admin, \"mustChangePassword\" AS troca_obrigatoria FROM staff WHERE lower(email) = lower('$escapado');"
+          echo ""
+          echo "Entre no app com a senha temporaria. Ele exigira uma nova senha"
+          echo "antes de liberar qualquer tela. Depois disso, troque o secret."
