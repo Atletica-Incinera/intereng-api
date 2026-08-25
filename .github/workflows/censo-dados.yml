@@ -1,0 +1,93 @@
+name: Censo dos dados de producao (somente leitura)
+
+# Responde uma pergunta so: o InterEng tem dados suficientes para acontecer?
+#
+# O codigo esta pronto ha dias; o que decide o evento e se as equipes, atletas,
+# modalidades e jogos foram cadastrados. Ate agora isso vinha sendo respondido
+# por suposicao. Aqui e medido.
+#
+# POR QUE E UM WORKFLOW: o Postgres escuta so em 127.0.0.1 da VM, entao nem a
+# VPN o alcanca — so um tunel SSH, e o unico usuario com Docker na maquina e o
+# que roda este runner. A conta pessoal de SSH nao le nem o `.env`.
+#
+# SOMENTE LEITURA: apenas SELECT e count. Nenhuma escrita.
+#
+# PRIVACIDADE: conta linhas de `athletes` e `staff`, mas nunca imprime o
+# conteudo delas — sao dados pessoais (nome, e-mail, data de nascimento) e o
+# log de uma execucao fica registrado. So sao despejadas as tabelas
+# organizacionais: competicoes, edicoes e modalidades.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  censo:
+    name: Medir o estado dos dados
+    runs-on: self-hosted
+    timeout-minutes: 5
+
+    steps:
+      - name: Contar
+        continue-on-error: true
+        run: |
+          set -u
+          PG=intereng-postgres
+          DB=competitions
+          OUT=censo.txt
+
+          exec > >(tee "$OUT") 2>&1
+
+          q() { docker exec "$PG" psql -U postgres -d "$DB" -c "$1" 2>&1; }
+          titulo() { echo; echo; echo "=== $1 ==="; }
+
+          titulo "1. Volume por entidade"
+          q "SELECT
+               (SELECT count(*) FROM competitions)         AS torneios,
+               (SELECT count(*) FROM competition_editions) AS edicoes,
+               (SELECT count(*) FROM teams)                AS equipes,
+               (SELECT count(*) FROM athletes)             AS atletas,
+               (SELECT count(*) FROM disciplines)          AS modalidades,
+               (SELECT count(*) FROM tournaments)          AS categorias,
+               (SELECT count(*) FROM matches)              AS jogos,
+               (SELECT count(*) FROM staff)                AS staff;"
+
+          titulo "2. Vinculos com a edicao (o que de fato aparece no app)"
+          # Cadastrar a equipe nao basta: ela precisa estar vinculada a edicao.
+          # E o lugar onde um cadastro parece feito e nao aparece em lugar nenhum.
+          q "SELECT
+               (SELECT count(*) FROM edition_teams)       AS equipes_na_edicao,
+               (SELECT count(*) FROM edition_athletes)    AS atletas_na_edicao,
+               (SELECT count(*) FROM edition_disciplines) AS modalidades_na_edicao,
+               (SELECT count(*) FROM edition_rosters)     AS elencos,
+               (SELECT count(*) FROM edition_staff_roles) AS papeis_de_staff;"
+
+          titulo "3. Estrutura de disputa"
+          q "SELECT
+               (SELECT count(*) FROM tournament_entries) AS inscricoes,
+               (SELECT count(*) FROM phases)             AS fases,
+               (SELECT count(*) FROM groups)             AS grupos,
+               (SELECT count(*) FROM match_events)       AS eventos_de_jogo,
+               (SELECT count(*) FROM phase_standings)    AS linhas_de_classificacao,
+               (SELECT count(*) FROM overall_metrics)    AS metricas_gerais;"
+
+          titulo "4. Competicoes e edicoes (dados organizacionais, sem PII)"
+          q "SELECT * FROM competitions;"
+          q "SELECT * FROM competition_editions;"
+
+          titulo "5. Modalidades cadastradas"
+          q "SELECT * FROM disciplines;"
+
+          titulo "6. Colunas de matches (para consultas futuras)"
+          q "SELECT column_name, data_type FROM information_schema.columns
+             WHERE table_name = 'matches' ORDER BY ordinal_position;"
+
+          titulo "FIM"
+
+      - name: Publicar o resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: censo
+          path: censo.txt
+          if-no-files-found: warn
+          retention-days: 14
