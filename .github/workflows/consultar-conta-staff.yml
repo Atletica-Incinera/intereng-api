@@ -1,0 +1,58 @@
+name: Consultar conta de staff (somente leitura)
+
+# Responde tres perguntas sobre UMA conta, informada no disparo:
+#   - ela existe?
+#   - e super admin?
+#   - ainda esta com a senha inicial?
+#
+# A terceira e a que resolve o caso pratico: `mustChangePassword` marca as
+# contas que nunca trocaram a senha de convite. Se estiver verdadeira, a senha
+# e a de convite (hoje o padrao `intereng2026`, porque STAFF_INVITE_PASSWORD
+# nao esta definida em producao) e a pessoa consegue entrar e trocar.
+#
+# POR QUE ISTO PRECISA EXISTIR: a API nao tem recuperacao de senha. Existe
+# apenas `POST /auth/change-password`, que exige a senha atual. Quem esquece
+# fica sem caminho — e nem da para descobrir se a conta existe, porque o login
+# responde "Credenciais invalidas" igual para e-mail cadastrado e inventado
+# (comportamento correto: nao vaza quem tem conta).
+#
+# SOMENTE LEITURA. Nao imprime hash de senha, e consulta uma conta por vez em
+# vez de despejar a tabela — o log da execucao fica registrado.
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: E-mail da conta a verificar
+        required: true
+        type: string
+
+jobs:
+  consultar:
+    name: Verificar a conta
+    runs-on: self-hosted
+    timeout-minutes: 5
+
+    steps:
+      - name: Consultar
+        env:
+          ALVO: ${{ inputs.email }}
+        run: |
+          set -eu
+          escapado=$(printf '%s' "$ALVO" | sed "s/'/''/g")
+          docker exec -i intereng-postgres psql -U postgres -d competitions -v ON_ERROR_STOP=1 <<SQL
+          SELECT
+            name AS nome,
+            email,
+            "isSuperAdmin"       AS super_admin,
+            "mustChangePassword" AS ainda_com_senha_inicial,
+            "createdAt"          AS criada_em
+          FROM staff
+          WHERE lower(email) = lower('$escapado');
+          SQL
+
+          echo ""
+          echo "Se nada apareceu acima, a conta nao existe — e precisa ser criada"
+          echo "por alguem com acesso de admin, pela tela de staff do app."
+          echo ""
+          echo "Se ainda_com_senha_inicial = t, a senha e a de convite."
