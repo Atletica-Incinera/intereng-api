@@ -71,6 +71,12 @@ const MANAGER_ACTIONS = new Set<EditionActionType>([
   'category/update',
   'category/generateMatches',
   'discipline/update',
+  // O gestor cadastra e ajusta atletas da PROPRIA modalidade. A restricao de
+  // escopo nao cabe em `targetDisciplineId`, que devolve uma modalidade so:
+  // um atleta pode ter varias, e o gestor nao pode alcancar as outras. Por
+  // isso estas duas tem verificacao propria, em `authorizeManagerAthlete`.
+  'athlete/create',
+  'athlete/update',
 ]);
 const CREATED_ACTIONS = new Set<EditionActionType>([
   'match/schedule',
@@ -440,6 +446,10 @@ export class EditionActionsService {
     if (!MANAGER_ACTIONS.has(actionType)) {
       throw new ForbiddenException('Gestores de modalidade não podem executar esta ação.');
     }
+    if (actionType === 'athlete/create' || actionType === 'athlete/update') {
+      await this.authorizeManagerAthlete(transaction, edition.id, scope, actionType, payload);
+      return;
+    }
     const targetDisciplineId = await this.targetDisciplineId(
       transaction,
       edition.id,
@@ -457,6 +467,64 @@ export class EditionActionsService {
       if (patch.enabled === false || forbiddenFields.length) {
         throw new ForbiddenException(
           'O gestor pode alterar apenas as regras da modalidade atribuída.',
+        );
+      }
+    }
+  }
+
+  /**
+   * Atleta do gestor: so a modalidade dele, e so atleta que ja e dele.
+   *
+   * Sem a segunda metade, um gestor de Futsal poderia editar um atleta de
+   * Basquete e, no mesmo movimento, arrasta-lo para o Futsal — o payload de
+   * `athlete/update` carrega as modalidades. A checagem de escopo tem que
+   * olhar o estado ATUAL do atleta, nao so o que o payload pede.
+   */
+  private async authorizeManagerAthlete(
+    transaction: Prisma.TransactionClient,
+    editionId: string,
+    scope: { kind: 'discipline'; editionDisciplineId: string },
+    actionType: EditionActionType,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const propria = await transaction.editionDiscipline.findFirst({
+      where: { id: scope.editionDisciplineId, editionId },
+      select: { discipline: { select: { name: true } } },
+    });
+    if (!propria) {
+      throw new ForbiddenException('A modalidade atribuída ao gestor não pertence a esta edição.');
+    }
+    const nomeProprio = propria.discipline.name;
+
+    const corpo =
+      actionType === 'athlete/create'
+        ? actionObject(payload.athlete, 'O atleta')
+        : actionObject(payload.patch, 'A alteração do atleta');
+    const modalidades = corpo.modalities;
+
+    if (actionType === 'athlete/create' || modalidades !== undefined) {
+      if (!Array.isArray(modalidades) || !modalidades.length) {
+        throw new ForbiddenException(
+          `O gestor precisa informar a modalidade ${nomeProprio} ao cadastrar o atleta.`,
+        );
+      }
+      const fora = modalidades.filter((item) => item !== nomeProprio);
+      if (fora.length) {
+        throw new ForbiddenException(
+          `O gestor só pode vincular o atleta à modalidade ${nomeProprio}.`,
+        );
+      }
+    }
+
+    if (actionType === 'athlete/update') {
+      const id = actionId(payload, 'id', 'O ID do atleta');
+      const jaEDele = await transaction.editionRoster.findFirst({
+        where: { athleteId: id, editionDisciplineId: scope.editionDisciplineId },
+        select: { id: true },
+      });
+      if (!jaEDele) {
+        throw new ForbiddenException(
+          `O atleta não pertence à modalidade ${nomeProprio}. Peça ao administrador da edição.`,
         );
       }
     }
