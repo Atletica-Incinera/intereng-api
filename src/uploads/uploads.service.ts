@@ -97,7 +97,30 @@ export class UploadsService {
     }
   }
 
+  /**
+   * Logotipo publicado junto com o front, em `apps/web/public/teams/`.
+   *
+   * Nao e objeto de storage: e arquivo versionado no repositorio, que sobe a
+   * cada deploy. Existe porque o MinIO ainda nao tem rota publica no gateway,
+   * e as dezesseis logos do evento ja estavam no repositorio desde sempre —
+   * fazer o evento depender de uma rota que ninguem do time pode criar seria
+   * escolher o caminho mais fragil por inercia.
+   *
+   * Trocar uma dessas exige commit e deploy, nao upload pelo app. Para logo de
+   * equipe definida antes do evento, isso e vantagem: fica versionado e
+   * revisavel, sem dependencia de runtime no dia do jogo.
+   */
+  static readonly LOGO_ESTATICA = /^\/teams\/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.webp$/;
+
+  static ehLogoEstatica(valor: string): boolean {
+    return UploadsService.LOGO_ESTATICA.test(valor);
+  }
+
   async assertValidTeamLogo(teamId: string, fileKey: string): Promise<void> {
+    // Arquivo do proprio app: nao ha objeto para consultar no storage, e o
+    // deploy ja garante que ele existe. A validacao aqui e de formato.
+    if (UploadsService.ehLogoEstatica(fileKey)) return;
+
     if (!fileKey.startsWith(this.teamLogoPrefix(teamId)) || !fileKey.endsWith('.webp')) {
       throw new BadRequestException('A chave do logotipo não pertence à equipe informada.');
     }
