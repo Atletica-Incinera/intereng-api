@@ -174,7 +174,11 @@ export class CatalogActionHandler {
       max: 512,
       trim: false,
     });
-    if (logoKey !== undefined) {
+    // Logotipo do storage exige a equipe criada: o objeto e enviado depois,
+    // com a chave derivada do id. Ja o logotipo estatico e arquivo do proprio
+    // app, existe antes da equipe, e recusa-lo aqui obrigaria duas acoes para
+    // cadastrar uma equipe com escudo.
+    if (logoKey !== undefined && !UploadsService.ehLogoEstatica(logoKey)) {
       throw new BadRequestException(
         'Crie a equipe antes de enviar o logotipo para o armazenamento.',
       );
