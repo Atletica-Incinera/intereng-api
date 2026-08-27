@@ -20,6 +20,7 @@ export const EDITION_ACTION_TYPES = [
   'category/update',
   'category/generateMatches',
   'discipline/update',
+  'discipline/delete',
   'team/create',
   'team/update',
   'athlete/create',
@@ -39,6 +40,7 @@ export const EDITION_ACTION_TYPES = [
   'edition/update',
   'edition/activate',
   'staff/upsert',
+  'staff/remove',
   'staff/promoteSuperAdmin',
 ] as const;
 
