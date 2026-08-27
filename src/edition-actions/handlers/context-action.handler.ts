@@ -351,6 +351,97 @@ export class ContextActionHandler {
     };
   }
 
+  /**
+   * Tira o acesso da pessoa desta edicao de verdade, apagando a atribuicao.
+   *
+   * Ate aqui "revogar" era `revokedAt`: a linha ficava, e a tela mostrava o
+   * cartao "REVOGADO" no meio de quem tem acesso.
+   *
+   * A conta em si so e apagada quando nao sobra rastro nenhum dela no
+   * sistema -- nenhum outro papel, nenhum registro de auditoria, nenhuma
+   * partida iniciada ou operada, nenhuma correcao, nenhuma sessao. E o caso do
+   * convite com e-mail errado, que e quando remover de verdade importa. Com
+   * historico, a conta fica: apagar levaria junto a auditoria, que existe
+   * justamente para sobreviver a quem saiu.
+   */
+  async staffRemove(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['email']);
+    const email = actionEmail(payload, 'email', 'O e-mail do membro');
+    const tx = context.transaction;
+
+    const staff = await tx.staff.findUnique({
+      where: { email },
+      select: { id: true, name: true, isSuperAdmin: true },
+    });
+    if (!staff) throw new NotFoundException('Membro do staff não encontrado.');
+    if (staff.id === context.user.id) {
+      throw new ConflictException('Você não pode remover o seu próprio acesso.');
+    }
+    if (staff.isSuperAdmin && !context.user.isSuperAdmin) {
+      throw new ForbiddenException(
+        'O administrador da edição não pode remover uma conta de super administrador.',
+      );
+    }
+
+    const papeis = await tx.editionStaffRole.findMany({
+      where: { editionId: context.edition.id, staffId: staff.id },
+      select: { id: true },
+    });
+    if (!papeis.length) {
+      throw new NotFoundException('Esse membro não tem acesso nesta edição.');
+    }
+    await tx.editionStaffRole.deleteMany({
+      where: { id: { in: papeis.map((papel) => papel.id) } },
+    });
+
+    if (!staff.isSuperAdmin) {
+      const [
+        outrosPapeis,
+        revogacoes,
+        auditoria,
+        iniciadas,
+        operadas,
+        desfeitos,
+        correcoes,
+        premiacoes,
+        fechamentos,
+        reaberturas,
+        sessoes,
+      ] = await Promise.all([
+        tx.editionStaffRole.count({ where: { staffId: staff.id } }),
+        tx.editionStaffRole.count({ where: { revokedById: staff.id } }),
+        tx.auditLog.count({ where: { staffId: staff.id } }),
+        tx.match.count({ where: { startedById: staff.id } }),
+        tx.match.count({ where: { operatorId: staff.id } }),
+        tx.matchEvent.count({ where: { undoneById: staff.id } }),
+        tx.matchCorrection.count({ where: { actorId: staff.id } }),
+        tx.overallAward.count({ where: { revokedById: staff.id } }),
+        tx.overallClosure.count({ where: { actorId: staff.id } }),
+        tx.overallClosure.count({ where: { reopenedById: staff.id } }),
+        tx.refreshSession.count({ where: { staffId: staff.id } }),
+      ]);
+      const semRastro =
+        outrosPapeis +
+          revogacoes +
+          auditoria +
+          iniciadas +
+          operadas +
+          desfeitos +
+          correcoes +
+          premiacoes +
+          fechamentos +
+          reaberturas +
+          sessoes ===
+        0;
+      if (semRastro) await tx.staff.delete({ where: { id: staff.id } });
+    }
+
+    return { entityType: 'EditionStaffRole', entityId: papeis[0].id };
+  }
+
   async staffUpsert(
     context: EditionActionContext,
     payload: Record<string, unknown>,

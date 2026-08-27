@@ -153,6 +153,63 @@ export class CatalogActionHandler {
     };
   }
 
+  /**
+   * Tira a modalidade da edicao de verdade, apagando o vinculo.
+   *
+   * Ate aqui "remover" era `enabled: false`: o registro ficava, e a tela
+   * mostrava um cartao "REMOVIDA" no meio das ativas. Apagar exige que nada
+   * dependa dele -- categoria, elenco, gestor com escopo nela ou pontuacao no
+   * ranking geral. Recusar dizendo o que esta no caminho e melhor que apagar
+   * jogo junto: durante o evento isso levaria resultado embora.
+   *
+   * A modalidade global so e apagada quando nenhuma outra edicao a usa. Do
+   * contrario ela continua no catalogo e some so desta edicao, que e o que a
+   * tela promete.
+   */
+  async disciplineDelete(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['name']);
+    const name = actionString(payload, 'name', 'O nome da modalidade', { min: 2, max: 120 });
+    const tx = context.transaction;
+
+    const link = await tx.editionDiscipline.findFirst({
+      where: { editionId: context.edition.id, discipline: { name } },
+      select: { id: true, disciplineId: true },
+    });
+    if (!link) throw new NotFoundException('A modalidade não pertence a esta edição.');
+
+    const [categorias, elencos, gestores, premiacoes] = await Promise.all([
+      tx.tournament.count({ where: { editionDisciplineId: link.id } }),
+      tx.editionRoster.count({ where: { editionDisciplineId: link.id } }),
+      tx.editionStaffRole.count({ where: { editionDisciplineId: link.id } }),
+      tx.overallAward.count({ where: { editionDisciplineId: link.id } }),
+    ]);
+    const impedimentos = [
+      categorias && `${categorias} ${categorias === 1 ? 'categoria' : 'categorias'}`,
+      elencos && `${elencos} ${elencos === 1 ? 'atleta inscrito' : 'atletas inscritos'}`,
+      gestores && `${gestores} ${gestores === 1 ? 'gestor' : 'gestores'} com escopo nela`,
+      premiacoes && `${premiacoes} ${premiacoes === 1 ? 'pontuação' : 'pontuações'} no ranking geral`,
+    ].filter((item): item is string => Boolean(item));
+    if (impedimentos.length) {
+      throw new ConflictException(
+        `Não dá para excluir ${name}: ainda há ${impedimentos.join(', ')}. Remova isso primeiro ou desative a modalidade.`,
+      );
+    }
+
+    await tx.editionDiscipline.delete({ where: { id: link.id } });
+
+    const outrasEdicoes = await tx.editionDiscipline.count({
+      where: { disciplineId: link.disciplineId },
+    });
+    if (outrasEdicoes === 0) {
+      await tx.discipline.delete({ where: { id: link.disciplineId } });
+    }
+
+    return { entityType: 'EditionDiscipline', entityId: link.id };
+  }
+
   async teamCreate(
     context: EditionActionContext,
     payload: Record<string, unknown>,
