@@ -125,6 +125,7 @@ export class EditionActionsService {
       'category/generateMatches': (context, payload, audit) =>
         categoryActions.generateMatches(context, payload, audit),
       'discipline/update': (context, payload) => catalogActions.disciplineUpdate(context, payload),
+      'discipline/delete': (context, payload) => catalogActions.disciplineDelete(context, payload),
       'team/create': (context, payload) => catalogActions.teamCreate(context, payload),
       'team/update': (context, payload) => catalogActions.teamUpdate(context, payload),
       'athlete/create': (context, payload) => catalogActions.athleteCreate(context, payload),
@@ -155,6 +156,7 @@ export class EditionActionsService {
       'edition/update': (context, payload) => contextActions.editionUpdate(context, payload),
       'edition/activate': (context, payload) => contextActions.editionActivate(context, payload),
       'staff/upsert': (context, payload) => contextActions.staffUpsert(context, payload),
+      'staff/remove': (context, payload) => contextActions.staffRemove(context, payload),
       'staff/promoteSuperAdmin': (context, payload) =>
         contextActions.promoteSuperAdmin(context, payload),
     };
