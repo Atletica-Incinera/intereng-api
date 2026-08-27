@@ -190,7 +190,8 @@ export class CatalogActionHandler {
       categorias && `${categorias} ${categorias === 1 ? 'categoria' : 'categorias'}`,
       elencos && `${elencos} ${elencos === 1 ? 'atleta inscrito' : 'atletas inscritos'}`,
       gestores && `${gestores} ${gestores === 1 ? 'gestor' : 'gestores'} com escopo nela`,
-      premiacoes && `${premiacoes} ${premiacoes === 1 ? 'pontuação' : 'pontuações'} no ranking geral`,
+      premiacoes &&
+        `${premiacoes} ${premiacoes === 1 ? 'pontuação' : 'pontuações'} no ranking geral`,
     ].filter((item): item is string => Boolean(item));
     if (impedimentos.length) {
       throw new ConflictException(

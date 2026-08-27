@@ -14,7 +14,9 @@ import { ContextActionHandler } from './context-action.handler';
  * importa.
  */
 describe('ContextActionHandler — remoção de acesso do staff', () => {
-  function montar(opcoes: { rastro?: number; alvoSuperAdmin?: boolean; atorSuperAdmin?: boolean } = {}) {
+  function montar(
+    opcoes: { rastro?: number; alvoSuperAdmin?: boolean; atorSuperAdmin?: boolean } = {},
+  ) {
     const rastro = opcoes.rastro ?? 0;
     const contar = jest.fn().mockResolvedValue(rastro);
     const staffDelete = jest.fn().mockResolvedValue({ id: 'staff-2' });
@@ -72,9 +74,9 @@ describe('ContextActionHandler — remoção de acesso do staff', () => {
 
   it('recusa remover o próprio acesso', async () => {
     const { handler, context } = montar();
-    (context.transaction.staff as unknown as { findUnique: jest.Mock }).findUnique.mockResolvedValue(
-      { id: 'staff-1', name: 'Eu', isSuperAdmin: false },
-    );
+    (
+      context.transaction.staff as unknown as { findUnique: jest.Mock }
+    ).findUnique.mockResolvedValue({ id: 'staff-1', name: 'Eu', isSuperAdmin: false });
 
     await expect(handler.staffRemove(context, { email: 'eu@cin.ufpe.br' })).rejects.toThrow(
       ConflictException,
