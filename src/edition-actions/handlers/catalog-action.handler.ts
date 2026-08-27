@@ -229,12 +229,16 @@ export class CatalogActionHandler {
       min: 2,
       max: 160,
     });
+    // `null` remove o escudo. Precisa ser distinto de omitir o campo: um patch
+    // sem `logo` nao mexe no escudo, e sem essa distincao nao havia como
+    // desfazer uma escolha -- so trocar por outra.
     const logoKey = optionalActionString(patch, 'logo', 'A chave do logotipo', {
       min: 1,
       max: 512,
       trim: false,
+      nullable: true,
     });
-    if (logoKey !== undefined) await this.uploads.assertValidTeamLogo(id, logoKey);
+    if (logoKey != null) await this.uploads.assertValidTeamLogo(id, logoKey);
     const archived = optionalActionBoolean(patch, 'archived', 'O arquivamento da equipe');
 
     const changesGlobalData =
