@@ -335,6 +335,7 @@ export class SnapshotMapper {
         select: {
           id: true,
           matchId: true,
+          athleteId: true,
           type: true,
           metadata: true,
           detail: true,
@@ -1088,6 +1089,7 @@ export class SnapshotMapper {
     points: number | null;
     previousScore: Prisma.JsonValue | null;
     occurredAt: Date;
+    athleteId?: string | null;
   }): MatchEventSnapshotDto {
     const previous = this.mapPreviousScore(event.previousScore);
     const type = this.eventLabel(event.type, event.metadata);
@@ -1101,6 +1103,10 @@ export class SnapshotMapper {
         : {}),
       type,
       detail: event.detail ?? type,
+      // Autor do lance: e o que sustenta a artilharia publica. Vai tambem no
+      // snapshot publico -- quem marcou um gol e informacao de jogo, nao de
+      // gestao.
+      ...(event.athleteId ? { athleteId: event.athleteId } : {}),
       side: this.mapEventSide(event.side),
       scoreA: event.scoreA ?? 0,
       scoreB: event.scoreB ?? 0,
