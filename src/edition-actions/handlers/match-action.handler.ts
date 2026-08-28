@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MatchStatus, PhaseType, Prisma } from '@prisma/client';
+import { MatchEventSide, MatchStatus, PhaseType, Prisma } from '@prisma/client';
 import {
   actionArray,
   actionDate,
@@ -1273,6 +1273,53 @@ export class MatchActionHandler {
    * atribuicao ERRADA -- atleta de outra equipe leva o gol para o artilheiro
    * errado, e isso e pior que gol sem autor.
    */
+  /**
+   * Diz quem fez o lance que acabou de ser registrado.
+   *
+   * Existe separado de `registerEvent` porque o placar nao pode esperar pela
+   * atribuicao: no ginasio o gol entra na hora, e so depois alguem confirma o
+   * autor. Um seletor bloqueando o botao de gol seria um placar errado toda
+   * vez que a mesa se distraisse no meio da escolha.
+   *
+   * `athleteId: null` limpa a atribuicao -- serve para corrigir quem errou o
+   * nome, sem precisar desfazer o gol.
+   */
+  async attributeEvent(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['id', 'eventId', 'athleteId']);
+    const id = actionId(payload, 'id', 'O ID da partida');
+    const eventId = actionId(payload, 'eventId', 'O ID do evento');
+    const match = await this.matchOrThrow(context, id);
+    this.assertOperator(match, context);
+
+    const evento = await context.transaction.matchEvent.findFirst({
+      where: { id: eventId, matchId: id, undoneAt: null },
+      select: { id: true, side: true },
+    });
+    if (!evento) throw new NotFoundException('Evento não encontrado nesta partida.');
+
+    const sideLabel =
+      evento.side === MatchEventSide.HOME
+        ? ('home' as const)
+        : evento.side === MatchEventSide.AWAY
+          ? ('away' as const)
+          : ('neutral' as const);
+    const athleteId = await this.resolveEventAthlete(
+      context,
+      { ...match, editionDisciplineId: match.phase.tournament.editionDisciplineId },
+      payload,
+      sideLabel,
+    );
+
+    await context.transaction.matchEvent.update({
+      where: { id: eventId },
+      data: { athleteId },
+    });
+    return { entityType: 'MatchEvent', entityId: eventId };
+  }
+
   private async resolveEventAthlete(
     context: EditionActionContext,
     match: { entryAId: string | null; entryBId: string | null; editionDisciplineId: string },

@@ -62,6 +62,7 @@ const MANAGER_ACTIONS = new Set<EditionActionType>([
   'match/start',
   'match/updateClock',
   'match/registerEvent',
+  'match/attributeEvent',
   'match/claimOperator',
   'match/releaseOperator',
   'match/undoEvent',
@@ -113,6 +114,7 @@ export class EditionActionsService {
       'match/start': (context, payload, audit) => matchActions.start(context, payload, audit),
       'match/updateClock': (context, payload) => matchActions.updateClock(context, payload),
       'match/registerEvent': (context, payload) => matchActions.registerEvent(context, payload),
+      'match/attributeEvent': (context, payload) => matchActions.attributeEvent(context, payload),
       'match/claimOperator': (context, payload) => matchActions.claimOperator(context, payload),
       'match/releaseOperator': (context, payload) => matchActions.releaseOperator(context, payload),
       'match/undoEvent': (context, payload, audit) =>
