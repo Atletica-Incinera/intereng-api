@@ -11,5 +11,5 @@ export interface RoleValidationStrategy {
     editionId: string,
     dto: CreateEditionStaffRoleDto,
     prisma: PrismaService,
-  ): Promise<{ editionDisciplineId: string | null }>;
+  ): Promise<{ editionDisciplineId: string | null; teamId?: string | null }>;
 }

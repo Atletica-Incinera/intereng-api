@@ -10,6 +10,11 @@ export class CreateEditionStaffRoleDto {
   @IsOptional()
   disciplineId?: string | null;
 
+  /** Equipe do responsável de atlética. Obrigatória para TEAM_MANAGER. */
+  @IsString()
+  @IsOptional()
+  teamId?: string | null;
+
   @IsEnum(EditionStaffRoleType, {
     message: `Role deve ser ${Object.values(EditionStaffRoleType).join(' ou ')}`,
   })

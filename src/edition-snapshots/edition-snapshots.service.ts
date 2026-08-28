@@ -156,6 +156,7 @@ export class EditionSnapshotsService {
       select: {
         role: true,
         editionDisciplineId: true,
+        teamId: true,
       },
     });
 
@@ -213,6 +214,19 @@ export class EditionSnapshotsService {
     }
 
     if (hasEditionAdminRole) return { kind: 'full' };
+
+    /*
+     * Responsavel de atletica nao escolhe escopo: ele so tem um. Vem antes do
+     * gestor de modalidade porque quem cuida de uma equipe nao cuida de
+     * modalidade nenhuma -- se tivesse os dois papeis, o de modalidade e o mais
+     * amplo e ja teria sido resolvido acima pelo header.
+     */
+    const papelDeEquipe = roles.find(
+      (role) => role.role === EditionStaffRoleType.TEAM_MANAGER && role.teamId !== null,
+    );
+    if (papelDeEquipe?.teamId) {
+      return { kind: 'team', teamId: papelDeEquipe.teamId };
+    }
 
     if (disciplineManagerRoleIds.length > 1) {
       throw new BadRequestException(
