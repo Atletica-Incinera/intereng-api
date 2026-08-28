@@ -447,6 +447,10 @@ export class EditionActionsService {
       return;
     }
     if (scope.kind === 'full') return;
+    if (scope.kind === 'team') {
+      await this.authorizeTeamManager(transaction, edition.id, scope, actionType, payload);
+      return;
+    }
     if (!MANAGER_ACTIONS.has(actionType)) {
       throw new ForbiddenException('Gestores de modalidade não podem executar esta ação.');
     }
@@ -484,6 +488,54 @@ export class EditionActionsService {
    * `athlete/update` carrega as modalidades. A checagem de escopo tem que
    * olhar o estado ATUAL do atleta, nao so o que o payload pede.
    */
+  /**
+   * Alcance do responsavel de atletica: uma equipe, e dentro dela so o elenco.
+   *
+   * A lista de acoes e curta de proposito. O papel existe para a atletica
+   * montar o proprio elenco sem depender da organizacao -- nao para operar
+   * jogo, mexer em categoria nem enxergar equipe alheia. Qualquer coisa fora
+   * disso e recusada aqui, antes de chegar ao handler.
+   *
+   * A checagem de equipe olha o estado ATUAL do atleta, alem do payload: sem
+   * isso, um responsavel poderia editar o atleta de outra atletica e traze-lo
+   * para a sua no mesmo movimento, passando pela verificacao de payload sem
+   * nunca ter tido acesso aquele atleta.
+   */
+  private async authorizeTeamManager(
+    transaction: Prisma.TransactionClient,
+    editionId: string,
+    scope: { kind: 'team'; teamId: string },
+    actionType: EditionActionType,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (actionType !== 'athlete/create' && actionType !== 'athlete/update') {
+      throw new ForbiddenException(
+        'O responsável da atlética só pode cadastrar e ajustar atletas da própria equipe.',
+      );
+    }
+    const corpo = actionObject(
+      actionType === 'athlete/create' ? payload.athlete : payload.patch,
+      'O atleta',
+    );
+    if (corpo.teamId !== undefined && corpo.teamId !== scope.teamId) {
+      throw new ForbiddenException('O atleta precisa pertencer à equipe do responsável.');
+    }
+    if (actionType === 'athlete/create') {
+      if (corpo.teamId === undefined) {
+        throw new ForbiddenException('O atleta precisa ser cadastrado na equipe do responsável.');
+      }
+      return;
+    }
+    const id = actionId(payload, 'id', 'O ID do atleta');
+    const atual = await transaction.editionAthlete.findFirst({
+      where: { editionId, athleteId: id },
+      select: { teamId: true },
+    });
+    if (!atual || atual.teamId !== scope.teamId) {
+      throw new ForbiddenException('Este atleta não é da equipe do responsável.');
+    }
+  }
+
   private async authorizeManagerAthlete(
     transaction: Prisma.TransactionClient,
     editionId: string,

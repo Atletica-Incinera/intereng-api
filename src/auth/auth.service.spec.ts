@@ -133,6 +133,10 @@ describe('AuthService', () => {
             editionDisciplineId: null,
             disciplineId: null,
             disciplineName: null,
+            // Nulos porque o papel e de edicao: so o responsavel de atletica
+            // se prende a uma equipe.
+            teamId: null,
+            teamName: null,
             role: 'EDITION_ADMIN',
           },
         ],
