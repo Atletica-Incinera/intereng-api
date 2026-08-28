@@ -94,6 +94,7 @@ const EVENT_FIELDS = [
   'previousScoreB',
   'points',
   'previous',
+  'athleteId',
 ] as const;
 const SCORE_PATCH_FIELDS = [
   'status',
@@ -680,12 +681,19 @@ export class MatchActionHandler {
     this.assertDerivedPeriodResult(payload.periodResult, derivedPeriodResult);
     const entryId =
       sideLabel === 'home' ? match.entryAId : sideLabel === 'away' ? match.entryBId : null;
+    const athleteId = await this.resolveEventAthlete(
+      context,
+      { ...match, editionDisciplineId: match.phase.tournament.editionDisciplineId },
+      event,
+      sideLabel,
+    );
     const nextSequence = match.lastEventSequence + 1;
     await context.transaction.matchEvent.create({
       data: {
         id: eventId,
         matchId: id,
         entryId,
+        ...(athleteId ? { athleteId } : {}),
         type: mapEventType(typeLabel),
         metadata: toInputJson(
           {
@@ -1254,6 +1262,66 @@ export class MatchActionHandler {
       }
     }
     return winnerEntryId;
+  }
+
+  /**
+   * Autor do lance, quando a mesa informa.
+   *
+   * Fica opcional de proposito. A atribuicao serve a artilharia, e artilharia
+   * nao pode travar o placar: se o elenco nao estiver carregado, ou se ninguem
+   * viu quem desviou, o gol precisa entrar do mesmo jeito. O que se recusa e a
+   * atribuicao ERRADA -- atleta de outra equipe leva o gol para o artilheiro
+   * errado, e isso e pior que gol sem autor.
+   */
+  private async resolveEventAthlete(
+    context: EditionActionContext,
+    match: { entryAId: string | null; entryBId: string | null; editionDisciplineId: string },
+    event: Record<string, unknown>,
+    sideLabel: 'home' | 'away' | 'neutral',
+  ): Promise<string | null> {
+    if (event.athleteId === undefined || event.athleteId === null) return null;
+    const athleteId = actionId(event, 'athleteId', 'O ID do atleta do evento');
+    if (sideLabel === 'neutral') {
+      throw new ConflictException('Um evento neutro não tem autor.');
+    }
+    const entryId = sideLabel === 'home' ? match.entryAId : match.entryBId;
+    if (!entryId) {
+      throw new ConflictException('A partida ainda não tem participante definido deste lado.');
+    }
+    const [entry, athlete] = await Promise.all([
+      context.transaction.tournamentEntry.findUnique({
+        where: { id: entryId },
+        select: { teamId: true, athleteId: true },
+      }),
+      context.transaction.athlete.findUnique({
+        where: { id: athleteId },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!athlete) throw new NotFoundException('Atleta do evento não encontrado.');
+    // Modalidade individual: o participante e o proprio atleta.
+    if (entry?.athleteId && entry.athleteId !== athlete.id) {
+      throw new ConflictException(`${athlete.name} não é quem disputa esta partida.`);
+    }
+    // Coletiva: a equipe do atleta vem do elenco da modalidade nesta edicao,
+    // nao do cadastro global -- e o mesmo lugar de onde a sumula tira o elenco.
+    if (entry?.teamId) {
+      const noElenco = await context.transaction.editionRoster.findFirst({
+        where: {
+          athleteId: athlete.id,
+          teamId: entry.teamId,
+          editionDisciplineId: match.editionDisciplineId,
+          status: { not: 'WITHDRAWN' },
+        },
+        select: { id: true },
+      });
+      if (!noElenco) {
+        throw new ConflictException(
+          `${athlete.name} não está no elenco da equipe deste lado da partida.`,
+        );
+      }
+    }
+    return athlete.id;
   }
 
   private async matchOrThrow(
