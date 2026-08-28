@@ -16,7 +16,11 @@ import { EditionActionContext } from '../edition-actions.types';
  * atribuicao errada nao.
  */
 describe('MatchActionHandler — autor do lance', () => {
-  const partida = { entryAId: 'entry-alcateia', entryBId: 'entry-voraz', editionDisciplineId: 'ed-futsal' };
+  const partida = {
+    entryAId: 'entry-alcateia',
+    entryBId: 'entry-voraz',
+    editionDisciplineId: 'ed-futsal',
+  };
 
   function montar(opcoes: { entry?: unknown; atleta?: unknown; noElenco?: boolean } = {}) {
     const context = {
@@ -32,7 +36,9 @@ describe('MatchActionHandler — autor do lance', () => {
           findUnique: jest
             .fn()
             .mockResolvedValue(
-              opcoes.atleta === undefined ? { id: 'atleta-1', name: 'Marina Souza' } : opcoes.atleta,
+              opcoes.atleta === undefined
+                ? { id: 'atleta-1', name: 'Marina Souza' }
+                : opcoes.atleta,
             ),
         },
         editionRoster: {
