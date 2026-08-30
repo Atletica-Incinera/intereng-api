@@ -1,4 +1,4 @@
-export type FrontendRole = 'SUPER_ADMIN' | 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER';
+export type FrontendRole = 'SUPER_ADMIN' | 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER' | 'TEAM_MANAGER';
 
 export interface ActiveEditionRoleResponse {
   roleAssignmentId: string;
@@ -7,7 +7,10 @@ export interface ActiveEditionRoleResponse {
   editionDisciplineId: string | null;
   disciplineId: string | null;
   disciplineName: string | null;
-  role: 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER';
+  /** Equipe do responsável de atlética. Nulo nos outros papéis. */
+  teamId: string | null;
+  teamName: string | null;
+  role: 'EDITION_ADMIN' | 'DISCIPLINE_MANAGER' | 'TEAM_MANAGER';
 }
 
 export interface AuthUserResponse {

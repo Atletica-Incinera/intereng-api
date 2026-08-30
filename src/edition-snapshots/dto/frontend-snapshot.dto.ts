@@ -129,6 +129,8 @@ export interface MatchEventSnapshotDto {
   type: string;
   detail: string;
   side: 'home' | 'away' | 'neutral';
+  /** Autor do lance, quando a mesa informou. Sustenta a artilharia. */
+  athleteId?: string;
   scoreA: number;
   scoreB: number;
   previousScoreA?: number;

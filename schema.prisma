@@ -58,6 +58,9 @@ enum RosterStatus {
 enum EditionStaffRoleType {
   EDITION_ADMIN
   DISCIPLINE_MANAGER
+  /// Responsavel de uma atletica. Alcanca uma equipe so, e dentro dela apenas
+  /// o elenco: cadastrar atleta e dizer em que modalidades ele joga.
+  TEAM_MANAGER
 }
 
 enum EventType {
@@ -170,6 +173,7 @@ model Team {
   updatedAt DateTime @updatedAt
 
   editionLinks EditionTeam[]
+  staffRoles   EditionStaffRole[]
   rosters      EditionRoster[]
   entries      TournamentEntry[]
 
@@ -313,6 +317,10 @@ model EditionStaffRole {
 
   editionDisciplineId String?
   editionDiscipline   EditionDiscipline?   @relation(fields: [editionId, editionDisciplineId], references: [editionId, id], onDelete: Restrict)
+  /// Equipe do papel TEAM_MANAGER. Nulo nos outros papeis, que nao se prendem
+  /// a uma equipe.
+  teamId              String?
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: Restrict)
   role                EditionStaffRoleType
 
   revokedAt   DateTime? @db.Timestamptz(3)
@@ -324,6 +332,7 @@ model EditionStaffRole {
 
   @@index([editionId, revokedAt])
   @@index([editionId, staffId, editionDisciplineId, role, revokedAt])
+  @@index([editionId, teamId, revokedAt])
   @@index([revokedById])
   @@map("edition_staff_roles")
 }
