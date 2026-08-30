@@ -473,34 +473,45 @@ export class SnapshotMapper {
         periodResults,
         corrections,
       }),
-      overallRanking: {
-        metrics: metrics.map((metric) => ({
-          id: metric.clientId,
-          name: metric.name,
-          defaultPoints: metric.defaultPoints,
-          ...(metric.position ? { position: this.mapOverallPosition(metric.position) } : {}),
-        })),
-        awards: awards.map((award) => ({
-          id: award.id,
-          editionId: award.editionId,
-          teamId: award.teamId,
-          discipline: award.editionDiscipline.discipline.name,
-          metricId: award.metricId,
-          points: award.points,
-          ...(award.note ? { note: award.note } : {}),
-          createdAt: award.createdAt.toISOString(),
-          origin: award.origin === OverallAwardOrigin.AUTOMATIC ? 'automatico' : 'manual',
-          ...(award.revokedAt ? { revokedAt: award.revokedAt.toISOString() } : {}),
-          ...(!options.public && award.revokedByName ? { revokedBy: award.revokedByName } : {}),
-          ...(award.revokeReason ? { revokeReason: award.revokeReason } : {}),
-        })),
-        closures: closures.map((closure) => ({
-          editionId: edition.id,
-          at: closure.closedAt.toISOString(),
-          actor: options.public ? 'Organização' : closure.actorName,
-          ...(closure.note ? { note: closure.note } : {}),
-        })),
-      },
+      /*
+       * A classificacao geral entre modalidades e restrita a organizacao.
+       * Esconder so os links da tela nao bastaria: o snapshot publico e uma
+       * rota aberta, e quem soubesse o endereco leria a pontuacao inteira.
+       *
+       * As chaves continuam existindo com listas vazias porque o app le
+       * `overallRanking` sem se defender de ausencia -- mandar `undefined`
+       * quebraria a leitura da area publica em vez de esconder o dado.
+       */
+      overallRanking: options.public
+        ? { metrics: [], awards: [], closures: [] }
+        : {
+            metrics: metrics.map((metric) => ({
+              id: metric.clientId,
+              name: metric.name,
+              defaultPoints: metric.defaultPoints,
+              ...(metric.position ? { position: this.mapOverallPosition(metric.position) } : {}),
+            })),
+            awards: awards.map((award) => ({
+              id: award.id,
+              editionId: award.editionId,
+              teamId: award.teamId,
+              discipline: award.editionDiscipline.discipline.name,
+              metricId: award.metricId,
+              points: award.points,
+              ...(award.note ? { note: award.note } : {}),
+              createdAt: award.createdAt.toISOString(),
+              origin: award.origin === OverallAwardOrigin.AUTOMATIC ? 'automatico' : 'manual',
+              ...(award.revokedAt ? { revokedAt: award.revokedAt.toISOString() } : {}),
+              ...(!options.public && award.revokedByName ? { revokedBy: award.revokedByName } : {}),
+              ...(award.revokeReason ? { revokeReason: award.revokeReason } : {}),
+            })),
+            closures: closures.map((closure) => ({
+              editionId: edition.id,
+              at: closure.closedAt.toISOString(),
+              actor: closure.actorName,
+              ...(closure.note ? { note: closure.note } : {}),
+            })),
+          },
       staff,
       superAdmins,
       audit,
