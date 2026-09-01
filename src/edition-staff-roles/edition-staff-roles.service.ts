@@ -133,7 +133,7 @@ export class EditionStaffRolesService {
     if (!strategy) {
       throw new BadRequestException(`Papel "${dto.role}" não suportado para validação.`);
     }
-    const { editionDisciplineId } = await strategy.validate(editionId, dto, this.prisma);
+    const { editionDisciplineId, teamId } = await strategy.validate(editionId, dto, this.prisma);
 
     // Verify if duplicate exists
     const existingRole = await this.prisma.editionStaffRole.findFirst({
@@ -141,6 +141,7 @@ export class EditionStaffRolesService {
         editionId,
         staffId: dto.staffId,
         editionDisciplineId,
+        ...(teamId ? { teamId } : {}),
         role: dto.role,
       },
       orderBy: { createdAt: 'desc' },

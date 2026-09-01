@@ -44,6 +44,7 @@ const STAFF_FIELDS = [
   'role',
   'scope',
   'revoked',
+  'initialPassword',
 ] as const;
 
 @Injectable()
@@ -461,6 +462,7 @@ export class ContextActionHandler {
     const role = actionEnum(member, 'role', 'O papel do membro', [
       'Admin da edição',
       'Gestor de modalidade',
+      'Responsável da atlética',
     ] as const);
     const scopeName = actionString(member, 'scope', 'O escopo do membro', {
       min: 1,
@@ -468,6 +470,21 @@ export class ContextActionHandler {
     });
     const revoked = optionalActionBoolean(member, 'revoked', 'A revogação do membro') ?? false;
 
+    /*
+     * O escopo e um texto so, e cada papel le esse texto de um jeito: o gestor
+     * de modalidade ve o nome da modalidade, e o responsavel de atletica ve o
+     * nome da equipe. Manter um campo so mantem o formulario igual para os
+     * dois; separar em dois campos duplicaria a tela por causa de um rotulo.
+     */
+    let teamId: string | null = null;
+    if (role === 'Responsável da atlética') {
+      const equipe = await context.transaction.editionTeam.findFirst({
+        where: { editionId: context.edition.id, team: { name: scopeName } },
+        select: { teamId: true },
+      });
+      if (!equipe) throw new NotFoundException('A equipe do escopo não pertence à edição.');
+      teamId = equipe.teamId;
+    }
     let editionDisciplineId: string | null = null;
     if (role === 'Gestor de modalidade') {
       const discipline = await context.transaction.editionDiscipline.findFirst({
@@ -483,7 +500,25 @@ export class ContextActionHandler {
       select: { id: true, name: true, isSuperAdmin: true },
     });
     if (!staff) {
-      const passwordHash = await bcrypt.hash(this.config.staffInvitePassword, 10);
+      /*
+       * Senha inicial escolhida por quem convida, quando informada.
+       *
+       * O padrao continua sendo a senha de convite compartilhada. A escolha
+       * existe porque o responsavel de atletica e convidado por WhatsApp, um a
+       * um, e mandar "use a senha que todo mundo usa" para doze pessoas de
+       * fora da organizacao e pior que mandar uma so para cada uma.
+       *
+       * `mustChangePassword` continua verdadeiro nos dois casos: quem convidou
+       * conhece a senha que digitou, entao ela nao pode sobreviver ao primeiro
+       * acesso.
+       */
+      const senhaInicial =
+        optionalActionString(member, 'initialPassword', 'A senha inicial do membro', {
+          min: 8,
+          max: 128,
+          trim: false,
+        }) ?? this.config.staffInvitePassword;
+      const passwordHash = await bcrypt.hash(senhaInicial, 10);
       // A senha de convite é a mesma para todo mundo e quem convidou a conhece.
       // A marca obriga a troca no primeiro acesso, então ela não sobrevive à
       // primeira sessão da pessoa.
@@ -509,12 +544,15 @@ export class ContextActionHandler {
     const targetRole =
       role === 'Admin da edição'
         ? EditionStaffRoleType.EDITION_ADMIN
-        : EditionStaffRoleType.DISCIPLINE_MANAGER;
+        : role === 'Responsável da atlética'
+          ? EditionStaffRoleType.TEAM_MANAGER
+          : EditionStaffRoleType.DISCIPLINE_MANAGER;
     const matchingRoleWhere = {
       editionId: context.edition.id,
       staffId: staff.id,
       role: targetRole,
       editionDisciplineId,
+      teamId,
       revokedAt: null,
     };
 
@@ -576,6 +614,7 @@ export class ContextActionHandler {
             staffId: staff.id,
             role: targetRole,
             editionDisciplineId,
+            teamId,
           },
         });
       }

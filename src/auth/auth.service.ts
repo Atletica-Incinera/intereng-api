@@ -61,6 +61,8 @@ const ACTIVE_AUTH_STAFF_SELECT = {
           },
         },
       },
+      teamId: true,
+      team: { select: { name: true } },
     },
   },
 } satisfies Prisma.StaffSelect;
@@ -314,6 +316,8 @@ export class AuthService {
       editionDisciplineId: role.editionDiscipline?.id ?? null,
       disciplineId: role.editionDiscipline?.disciplineId ?? null,
       disciplineName: role.editionDiscipline?.discipline.name ?? null,
+      teamId: role.teamId ?? null,
+      teamName: role.team?.name ?? null,
       role: role.role,
     }));
   }

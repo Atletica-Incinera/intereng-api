@@ -11,6 +11,7 @@ export const EDITION_ACTION_TYPES = [
   'match/start',
   'match/updateClock',
   'match/registerEvent',
+  'match/attributeEvent',
   'match/claimOperator',
   'match/releaseOperator',
   'match/undoEvent',

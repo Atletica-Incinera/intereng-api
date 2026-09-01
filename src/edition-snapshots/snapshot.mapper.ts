@@ -35,7 +35,14 @@ import {
 } from './dto/frontend-snapshot.dto';
 import { UploadsService } from '../uploads/uploads.service';
 
-export type SnapshotScope = { kind: 'full' } | { kind: 'discipline'; editionDisciplineId: string };
+export type SnapshotScope =
+  | { kind: 'full' }
+  | { kind: 'discipline'; editionDisciplineId: string }
+  /**
+   * Responsavel de atletica: alcanca uma equipe so. Ve o torneio como um
+   * espectador ve, mais o elenco da propria equipe -- que e o que ele monta.
+   */
+  | { kind: 'team'; teamId: string };
 
 interface SnapshotBuildOptions {
   public: boolean;
@@ -224,6 +231,9 @@ export class SnapshotMapper {
         ...(options.public || options.scope.kind === 'discipline'
           ? { athleteId: { in: [...scopedAthleteIds] } }
           : {}),
+        // Responsavel de atletica so enxerga o proprio elenco: o dos rivais nao
+        // e assunto dele, e deixar passar seria vazar escalacao antes do jogo.
+        ...(options.scope.kind === 'team' ? { teamId: options.scope.teamId } : {}),
       },
       orderBy: [{ createdAt: 'asc' }, { athleteId: 'asc' }],
       select: {
@@ -335,6 +345,7 @@ export class SnapshotMapper {
         select: {
           id: true,
           matchId: true,
+          athleteId: true,
           type: true,
           metadata: true,
           detail: true,
@@ -370,11 +381,11 @@ export class SnapshotMapper {
     ]);
 
     const [staffRoles, superAdminAccounts, audit] = await Promise.all([
-      options.public || options.scope.kind === 'discipline'
+      options.public || options.scope.kind !== 'full'
         ? Promise.resolve<Record<string, StaffSnapshotDto>>({})
         : this.loadStaff(transaction, edition),
       this.loadSuperAdmins(transaction, options),
-      options.public || options.scope.kind === 'discipline'
+      options.public || options.scope.kind !== 'full'
         ? Promise.resolve<AuditSnapshotDto[]>([])
         : this.loadAudit(transaction, edition.id),
     ]);
@@ -978,7 +989,7 @@ export class SnapshotMapper {
     // não expõem ninguém da organização. Aqui a guarda mora dentro da função
     // porque a lista sai de uma tabela global, sem filtro por edição para
     // limitar o estrago caso a chamada escape do lugar certo.
-    if (options.public || options.scope.kind === 'discipline') return [];
+    if (options.public || options.scope.kind !== 'full') return [];
 
     const accounts = await transaction.staff.findMany({
       where: { isSuperAdmin: true },
@@ -1088,6 +1099,7 @@ export class SnapshotMapper {
     points: number | null;
     previousScore: Prisma.JsonValue | null;
     occurredAt: Date;
+    athleteId?: string | null;
   }): MatchEventSnapshotDto {
     const previous = this.mapPreviousScore(event.previousScore);
     const type = this.eventLabel(event.type, event.metadata);
@@ -1101,6 +1113,10 @@ export class SnapshotMapper {
         : {}),
       type,
       detail: event.detail ?? type,
+      // Autor do lance: e o que sustenta a artilharia publica. Vai tambem no
+      // snapshot publico -- quem marcou um gol e informacao de jogo, nao de
+      // gestao.
+      ...(event.athleteId ? { athleteId: event.athleteId } : {}),
       side: this.mapEventSide(event.side),
       scoreA: event.scoreA ?? 0,
       scoreB: event.scoreB ?? 0,
