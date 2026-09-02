@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { MatchStatus } from '@prisma/client';
 import { MatchActionHandler } from './match-action.handler';
 
 /**
@@ -42,6 +43,60 @@ describe('MatchActionHandler — participante a definir', () => {
 
   it('recusa o lado vazio', () => {
     expect(() => lado({}, 'A')).toThrow();
+  });
+
+  describe('trocar o rótulo pela equipe, quando quem decide é uma pessoa', () => {
+    /*
+     * O mata-mata o app resolve sozinho. Já o grupo de três jogado como
+     * mini-chave — "VORAZ × PERDEDOR J3", que a planilha traz dentro da fase
+     * de grupos — não segue regra nenhuma que o app conheça.
+     *
+     * Sem esta troca essas partidas entrariam na agenda e nunca sairiam dela:
+     * a mesa não abre partida sem os dois participantes.
+     */
+    const definir = (
+      match: Record<string, unknown>,
+      patch: Record<string, unknown>,
+      entrada: string | null = 'entrada-voraz',
+    ) => {
+      const handler = new MatchActionHandler() as unknown as {
+        entryByName: unknown;
+        participanteDefinido(
+          c: unknown,
+          m: Record<string, unknown>,
+          p: Record<string, unknown>,
+        ): Promise<Record<string, string | null>>;
+      };
+      handler.entryByName = jest.fn().mockResolvedValue(entrada);
+      return handler.participanteDefinido(
+        { transaction: {} },
+        { status: MatchStatus.SCHEDULED, phase: { tournamentId: 'cat-1' }, ...match },
+        patch,
+      );
+    };
+
+    it('define o participante e apaga o rótulo do mesmo lado', async () => {
+      await expect(
+        definir({ placeholderB: 'Perdedor do Jogo 3' }, { entryB: 'Voraz' }),
+      ).resolves.toEqual({ entryBId: 'entrada-voraz', placeholderB: null });
+    });
+
+    it('não mexe em nada quando o patch não fala de participante', async () => {
+      await expect(definir({}, { venue: 'Ginásio B' })).resolves.toEqual({});
+    });
+
+    it('recusa depois que a mesa abriu o placar', async () => {
+      // Trocar quem joga a essa altura apagaria o que a mesa anotou.
+      await expect(definir({ status: MatchStatus.LIVE }, { entryB: 'Voraz' })).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('recusa deixar a equipe jogando contra si mesma', async () => {
+      await expect(definir({ entryAId: 'entrada-voraz' }, { entryB: 'Voraz' })).rejects.toThrow(
+        /diferentes/,
+      );
+    });
   });
 
   describe('posição na chave, lida do próprio id', () => {

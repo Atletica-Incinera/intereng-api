@@ -324,6 +324,7 @@ export class MatchActionHandler {
         ...(scoreB !== undefined ? { scoreB } : {}),
         ...(winnerEntryId !== undefined ? { winnerEntryId } : {}),
         ...(walkoverWinnerEntryId !== undefined ? { walkoverWinnerEntryId } : {}),
+        ...(await this.participanteDefinido(context, match, patch)),
       },
     });
     if (requestedStatus === MatchStatus.WALKOVER) {
@@ -1490,6 +1491,51 @@ export class MatchActionHandler {
     });
     if (!phase) throw new NotFoundException('A fase informada não pertence à categoria.');
     return { phaseId: phase.id, groupId: null };
+  }
+
+  /**
+   * Troca o rotulo pela equipe, quando quem decide e uma pessoa.
+   *
+   * O mata-mata o app resolve sozinho, lendo os rotulos contra a
+   * classificacao. Ja o grupo de tres jogado como mini-chave -- "VORAZ x
+   * PERDEDOR J3", que a planilha traz dentro da fase de grupos -- nao segue
+   * regra nenhuma que o app conheca: quem sabe quem joga e a organizacao.
+   *
+   * Sem isso essas partidas entrariam na agenda e nunca sairiam dela: a mesa
+   * nao abre partida sem os dois participantes, e nao havia por onde informa-los.
+   *
+   * So enquanto a partida esta agendada. Trocar quem joga depois de a mesa
+   * abrir o placar apagaria o que ela anotou.
+   */
+  private async participanteDefinido(
+    context: EditionActionContext,
+    match: StoredMatchContext,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, string | null>> {
+    if (patch.entryA === undefined && patch.entryB === undefined) return {};
+    if (match.status !== MatchStatus.SCHEDULED) {
+      throw new ConflictException(
+        'Os participantes só podem ser trocados enquanto a partida está agendada.',
+      );
+    }
+    const tournamentId = match.phase.tournamentId;
+    const dados: Record<string, string | null> = {};
+    for (const lado of ['A', 'B'] as const) {
+      const informado = patch[`entry${lado}`];
+      if (informado === undefined) continue;
+      const nome = actionString(patch, `entry${lado}`, `O participante ${lado} da partida`, {
+        min: 1,
+        max: 160,
+      });
+      dados[`entry${lado}Id`] = await this.entryByName(context.transaction, tournamentId, nome);
+      dados[`placeholder${lado}`] = null;
+    }
+    const entryAId = dados.entryAId ?? match.entryAId;
+    const entryBId = dados.entryBId ?? match.entryBId;
+    if (entryAId && entryAId === entryBId) {
+      throw new ConflictException('Os participantes devem ser diferentes.');
+    }
+    return dados;
   }
 
   /**
