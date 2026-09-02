@@ -194,6 +194,9 @@ export interface MatchSnapshotDto {
   tiebreak?: MatchTiebreakSnapshotDto;
   corrections: MatchCorrectionSnapshotDto[];
   walkoverWinner?: string;
+  /** O participante ainda depende de um resultado; `entryA` traz o rótulo. */
+  aDefinirA?: boolean;
+  aDefinirB?: boolean;
 }
 
 export type OverallPositionSnapshot = 'campeao' | 'vice' | 'terceiro' | 'participacao';

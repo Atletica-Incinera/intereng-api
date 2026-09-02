@@ -34,6 +34,8 @@ import { EditionActionRecalculationService } from '../edition-action-recalculati
 import { ActionMutationResult, EditionActionContext } from '../edition-actions.types';
 
 const MATCH_FIELDS = [
+  'placeholderA',
+  'placeholderB',
   'date',
   'time',
   'venue',
@@ -195,12 +197,25 @@ export class MatchActionHandler {
     }
     const phaseName = actionString(match, 'phase', 'A fase da partida', { min: 1, max: 160 });
     const phase = await this.phaseContext(context.transaction, tournamentId, phaseName);
-    const entryA = actionString(match, 'entryA', 'O participante A', { min: 1, max: 180 });
-    const entryB = actionString(match, 'entryB', 'O participante B', { min: 1, max: 180 });
-    if (entryA === entryB) throw new ConflictException('Os participantes devem ser diferentes.');
+    /*
+     * Um lado da partida e uma equipe inscrita OU um rotulo do que ainda vai
+     * ser decidido: "Vencedor do Jogo 3", "1º do Grupo A". O chaveamento da
+     * organizacao ja tem dia, hora e ginasio para esses confrontos muito antes
+     * de existir resultado, e sem aceita-los o publico so via a chave depois da
+     * ultima rodada da fase de grupos.
+     *
+     * O rotulo e explicito, e nao um nome que por acaso nao casou: nome errado
+     * de equipe tem de continuar sendo recusado, senao um erro de digitacao
+     * viraria uma partida fantasma que ninguem consegue operar.
+     */
+    const { nome: entryA, rotulo: placeholderA } = this.ladoDaPartida(match, 'A');
+    const { nome: entryB, rotulo: placeholderB } = this.ladoDaPartida(match, 'B');
+    if (entryA && entryA === entryB) {
+      throw new ConflictException('Os participantes devem ser diferentes.');
+    }
     const [entryAId, entryBId] = await Promise.all([
-      this.entryByName(context.transaction, tournamentId, entryA),
-      this.entryByName(context.transaction, tournamentId, entryB),
+      entryA ? this.entryByName(context.transaction, tournamentId, entryA) : null,
+      entryB ? this.entryByName(context.transaction, tournamentId, entryB) : null,
     ]);
     const date = actionDate(match, 'date', 'A data da partida');
     const time = actionTime(match, 'time', 'O horário da partida');
@@ -213,6 +228,8 @@ export class MatchActionHandler {
         groupId: phase.groupId,
         entryAId,
         entryBId,
+        ...(placeholderA ? { placeholderA } : {}),
+        ...(placeholderB ? { placeholderB } : {}),
         status: MatchStatus.SCHEDULED,
         scheduledAt: scheduledAt(date, time),
         venue,
@@ -323,6 +340,17 @@ export class MatchActionHandler {
     const id = actionId(payload, 'id', 'O ID da partida');
     const patch = actionObject(payload.patch, 'A confirmação de início', MATCH_FIELDS);
     const match = await this.matchOrThrow(context, id);
+    /*
+     * Partida com participante a definir nao comeca. O chaveamento entra na
+     * agenda antes de existir resultado, para o publico ver a chave inteira --
+     * mas abrir o placar de um jogo sem adversario definido criaria evento e
+     * pontuacao penduradas em ninguem.
+     */
+    if (!match.entryAId || !match.entryBId) {
+      throw new ConflictException(
+        'Esta partida ainda depende de um resultado anterior. Ela começa quando os participantes forem definidos.',
+      );
+    }
     const operatorDeviceId = this.requireOperatorDeviceId(context);
     const requestedOperatorDeviceId = optionalActionString(
       patch,
@@ -1461,6 +1489,38 @@ export class MatchActionHandler {
     });
     if (!phase) throw new NotFoundException('A fase informada não pertence à categoria.');
     return { phaseId: phase.id, groupId: null };
+  }
+
+  /**
+   * Um lado da partida: equipe inscrita ou rotulo do que ainda sera decidido.
+   *
+   * Exatamente um dos dois. Aceitar os dois deixaria ambiguo qual vale, e
+   * aceitar nenhum criaria partida sem lado nenhum.
+   */
+  private ladoDaPartida(
+    match: Record<string, unknown>,
+    lado: 'A' | 'B',
+  ): { nome?: string; rotulo?: string } {
+    const campoNome = `entry${lado}`;
+    const campoRotulo = `placeholder${lado}`;
+    const temNome = match[campoNome] !== undefined && match[campoNome] !== null;
+    const temRotulo = match[campoRotulo] !== undefined && match[campoRotulo] !== null;
+    if (temNome && temRotulo) {
+      throw new ConflictException(
+        `Informe o participante ${lado} ou o rótulo do que será decidido, não os dois.`,
+      );
+    }
+    if (temRotulo) {
+      return {
+        rotulo: actionString(match, campoRotulo, `O rótulo do participante ${lado}`, {
+          min: 1,
+          max: 180,
+        }),
+      };
+    }
+    return {
+      nome: actionString(match, campoNome, `O participante ${lado}`, { min: 1, max: 180 }),
+    };
   }
 
   private async entryByName(

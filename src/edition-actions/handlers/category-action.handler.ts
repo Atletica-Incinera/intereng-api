@@ -662,6 +662,63 @@ export class CategoryActionHandler {
     return toInputJson(config, 'A configuração da categoria');
   }
 
+  /**
+   * Apaga a categoria criada por engano.
+   *
+   * A trava e o ponto principal, e mais severa que a da modalidade: no banco,
+   * `Match` cascateia de `Phase`, que cascateia de `Tournament`. Apagar uma
+   * categoria com jogos levaria junto partidas, lances e resultados, sem aviso
+   * e sem volta.
+   *
+   * Por isso so apaga o que nunca foi usado: rascunho, sem participante e sem
+   * jogo. E o caso que motivou a acao -- a categoria duplicada por erro de
+   * digitacao, que fica na lista atrapalhando e nao tinha como sair. Categoria
+   * em uso se arquiva pela situacao, nao se apaga.
+   */
+  async delete(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['id']);
+    const id = actionId(payload, 'id', 'O ID da categoria');
+    await this.tournamentOrThrow(context, id);
+    // A situacao nao vem de `tournamentOrThrow`, que so traz o que as outras
+    // acoes usam. Aqui ela e a primeira trava: rascunho e o unico estado em
+    // que apagar nao destroi historia.
+    const categoria = await context.transaction.tournament.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, editionDisciplineId: true },
+    });
+
+    const [participantes, jogos] = await Promise.all([
+      context.transaction.tournamentEntry.count({ where: { tournamentId: id } }),
+      context.transaction.match.count({ where: { phase: { tournamentId: id } } }),
+    ]);
+    const impedimentos = [
+      jogos && `${jogos} ${jogos === 1 ? 'jogo agendado' : 'jogos agendados'}`,
+      participantes &&
+        `${participantes} ${participantes === 1 ? 'equipe inscrita' : 'equipes inscritas'}`,
+    ].filter((item): item is string => Boolean(item));
+
+    if (categoria.status !== TournamentStatus.DRAFT) {
+      throw new ConflictException(
+        'Só é possível excluir categoria em rascunho. Uma categoria que já foi publicada se arquiva pela situação.',
+      );
+    }
+    if (impedimentos.length) {
+      throw new ConflictException(
+        `Não dá para excluir esta categoria: ainda há ${impedimentos.join(' e ')}. Remova isso primeiro.`,
+      );
+    }
+
+    await context.transaction.tournament.delete({ where: { id } });
+    return {
+      entityType: 'Tournament',
+      entityId: id,
+      editionDisciplineId: categoria.editionDisciplineId,
+    };
+  }
+
   private async disciplineOrThrow(
     context: EditionActionContext,
     name: string,

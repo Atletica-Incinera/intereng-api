@@ -19,6 +19,7 @@ export const EDITION_ACTION_TYPES = [
   'match/correctResult',
   'category/create',
   'category/update',
+  'category/delete',
   'category/generateMatches',
   'discipline/update',
   'discipline/delete',

@@ -124,6 +124,7 @@ export class EditionActionsService {
         matchActions.correctResult(context, payload, audit),
       'category/create': (context, payload) => categoryActions.create(context, payload),
       'category/update': (context, payload) => categoryActions.update(context, payload),
+      'category/delete': (context, payload) => categoryActions.delete(context, payload),
       'category/generateMatches': (context, payload, audit) =>
         categoryActions.generateMatches(context, payload, audit),
       'discipline/update': (context, payload) => catalogActions.disciplineUpdate(context, payload),

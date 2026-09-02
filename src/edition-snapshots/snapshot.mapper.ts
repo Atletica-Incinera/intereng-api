@@ -290,6 +290,8 @@ export class SnapshotMapper {
           groupId: true,
           entryAId: true,
           entryBId: true,
+          placeholderA: true,
+          placeholderB: true,
           scoreA: true,
           scoreB: true,
           currentPeriod: true,
@@ -782,6 +784,8 @@ export class SnapshotMapper {
       groupId: string | null;
       entryAId: string | null;
       entryBId: string | null;
+      placeholderA: string | null;
+      placeholderB: string | null;
       scoreA: number;
       scoreB: number;
       currentPeriod: number;
@@ -860,8 +864,14 @@ export class SnapshotMapper {
         const scheduled = match.scheduledAt;
         const rules = input.rulesByDisciplineId.get(tournament.editionDisciplineId);
         const tiebreak = this.mapTiebreak(match.tiebreak, input.isPublic);
-        const entryAName = entryA ? this.entryName(entryA) : undefined;
-        const entryBName = entryB ? this.entryName(entryB) : undefined;
+        /*
+         * Sem participante definido, vale o rotulo: "Vencedor do Jogo 3", "1º
+         * do Grupo A". A tela mostra o mesmo campo nos dois casos, e quem
+         * precisa distinguir olha `aDefinirA` -- e o que impede a mesa de abrir
+         * um jogo cujo adversario ainda nao existe.
+         */
+        const entryAName = entryA ? this.entryName(entryA) : (match.placeholderA ?? undefined);
+        const entryBName = entryB ? this.entryName(entryB) : (match.placeholderB ?? undefined);
         const walkoverWinnerName = walkoverWinner ? this.entryName(walkoverWinner) : undefined;
 
         const mapped: MatchSnapshotDto = {
@@ -876,6 +886,8 @@ export class SnapshotMapper {
           discipline: discipline.discipline.name,
           ...(entryAName ? { entryA: entryAName } : {}),
           ...(entryBName ? { entryB: entryBName } : {}),
+          ...(!entryA && match.placeholderA ? { aDefinirA: true } : {}),
+          ...(!entryB && match.placeholderB ? { aDefinirB: true } : {}),
           ...(entryA?.team?.logoKey ? { logoA: this.logoPath(entryA.team.logoKey) } : {}),
           ...(entryB?.team?.logoKey ? { logoB: this.logoPath(entryB.team.logoKey) } : {}),
           phase: match.groupId
