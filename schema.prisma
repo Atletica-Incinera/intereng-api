@@ -450,6 +450,13 @@ model Match {
   entryBId String?
   entryB   TournamentEntry? @relation("MatchEntryB", fields: [entryBId], references: [id], onDelete: SetNull)
 
+  /// Quem vai jogar, enquanto ainda nao se sabe: "Vencedor do Jogo 3", "1º do
+  /// Grupo A", "Melhor terceiro". A partida ja tem dia, hora e ginasio — o que
+  /// falta e o resultado que a define. Vira nulo quando o participante real
+  /// entra no lugar.
+  placeholderA String?
+  placeholderB String?
+
   winnerEntryId String?
   winnerEntry   TournamentEntry? @relation("MatchWinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)
 

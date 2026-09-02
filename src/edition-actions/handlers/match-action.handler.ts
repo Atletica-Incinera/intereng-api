@@ -34,6 +34,8 @@ import { EditionActionRecalculationService } from '../edition-action-recalculati
 import { ActionMutationResult, EditionActionContext } from '../edition-actions.types';
 
 const MATCH_FIELDS = [
+  'placeholderA',
+  'placeholderB',
   'date',
   'time',
   'venue',
@@ -195,12 +197,25 @@ export class MatchActionHandler {
     }
     const phaseName = actionString(match, 'phase', 'A fase da partida', { min: 1, max: 160 });
     const phase = await this.phaseContext(context.transaction, tournamentId, phaseName);
-    const entryA = actionString(match, 'entryA', 'O participante A', { min: 1, max: 180 });
-    const entryB = actionString(match, 'entryB', 'O participante B', { min: 1, max: 180 });
-    if (entryA === entryB) throw new ConflictException('Os participantes devem ser diferentes.');
+    /*
+     * Um lado da partida e uma equipe inscrita OU um rotulo do que ainda vai
+     * ser decidido: "Vencedor do Jogo 3", "1º do Grupo A". O chaveamento da
+     * organizacao ja tem dia, hora e ginasio para esses confrontos muito antes
+     * de existir resultado, e sem aceita-los o publico so via a chave depois da
+     * ultima rodada da fase de grupos.
+     *
+     * O rotulo e explicito, e nao um nome que por acaso nao casou: nome errado
+     * de equipe tem de continuar sendo recusado, senao um erro de digitacao
+     * viraria uma partida fantasma que ninguem consegue operar.
+     */
+    const { nome: entryA, rotulo: placeholderA } = this.ladoDaPartida(match, 'A');
+    const { nome: entryB, rotulo: placeholderB } = this.ladoDaPartida(match, 'B');
+    if (entryA && entryA === entryB) {
+      throw new ConflictException('Os participantes devem ser diferentes.');
+    }
     const [entryAId, entryBId] = await Promise.all([
-      this.entryByName(context.transaction, tournamentId, entryA),
-      this.entryByName(context.transaction, tournamentId, entryB),
+      entryA ? this.entryByName(context.transaction, tournamentId, entryA) : null,
+      entryB ? this.entryByName(context.transaction, tournamentId, entryB) : null,
     ]);
     const date = actionDate(match, 'date', 'A data da partida');
     const time = actionTime(match, 'time', 'O horário da partida');
@@ -213,6 +228,9 @@ export class MatchActionHandler {
         groupId: phase.groupId,
         entryAId,
         entryBId,
+        ...(placeholderA ? { placeholderA } : {}),
+        ...(placeholderB ? { placeholderB } : {}),
+        ...this.posicaoNaChave(id, tournamentId),
         status: MatchStatus.SCHEDULED,
         scheduledAt: scheduledAt(date, time),
         venue,
@@ -306,6 +324,7 @@ export class MatchActionHandler {
         ...(scoreB !== undefined ? { scoreB } : {}),
         ...(winnerEntryId !== undefined ? { winnerEntryId } : {}),
         ...(walkoverWinnerEntryId !== undefined ? { walkoverWinnerEntryId } : {}),
+        ...(await this.participanteDefinido(context, match, patch)),
       },
     });
     if (requestedStatus === MatchStatus.WALKOVER) {
@@ -323,6 +342,17 @@ export class MatchActionHandler {
     const id = actionId(payload, 'id', 'O ID da partida');
     const patch = actionObject(payload.patch, 'A confirmação de início', MATCH_FIELDS);
     const match = await this.matchOrThrow(context, id);
+    /*
+     * Partida com participante a definir nao comeca. O chaveamento entra na
+     * agenda antes de existir resultado, para o publico ver a chave inteira --
+     * mas abrir o placar de um jogo sem adversario definido criaria evento e
+     * pontuacao penduradas em ninguem.
+     */
+    if (!match.entryAId || !match.entryBId) {
+      throw new ConflictException(
+        'Esta partida ainda depende de um resultado anterior. Ela começa quando os participantes forem definidos.',
+      );
+    }
     const operatorDeviceId = this.requireOperatorDeviceId(context);
     const requestedOperatorDeviceId = optionalActionString(
       patch,
@@ -1461,6 +1491,105 @@ export class MatchActionHandler {
     });
     if (!phase) throw new NotFoundException('A fase informada não pertence à categoria.');
     return { phaseId: phase.id, groupId: null };
+  }
+
+  /**
+   * Troca o rotulo pela equipe, quando quem decide e uma pessoa.
+   *
+   * O mata-mata o app resolve sozinho, lendo os rotulos contra a
+   * classificacao. Ja o grupo de tres jogado como mini-chave -- "VORAZ x
+   * PERDEDOR J3", que a planilha traz dentro da fase de grupos -- nao segue
+   * regra nenhuma que o app conheca: quem sabe quem joga e a organizacao.
+   *
+   * Sem isso essas partidas entrariam na agenda e nunca sairiam dela: a mesa
+   * nao abre partida sem os dois participantes, e nao havia por onde informa-los.
+   *
+   * So enquanto a partida esta agendada. Trocar quem joga depois de a mesa
+   * abrir o placar apagaria o que ela anotou.
+   */
+  private async participanteDefinido(
+    context: EditionActionContext,
+    match: StoredMatchContext,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, string | null>> {
+    if (patch.entryA === undefined && patch.entryB === undefined) return {};
+    if (match.status !== MatchStatus.SCHEDULED) {
+      throw new ConflictException(
+        'Os participantes só podem ser trocados enquanto a partida está agendada.',
+      );
+    }
+    const tournamentId = match.phase.tournamentId;
+    const dados: Record<string, string | null> = {};
+    for (const lado of ['A', 'B'] as const) {
+      const informado = patch[`entry${lado}`];
+      if (informado === undefined) continue;
+      const nome = actionString(patch, `entry${lado}`, `O participante ${lado} da partida`, {
+        min: 1,
+        max: 160,
+      });
+      dados[`entry${lado}Id`] = await this.entryByName(context.transaction, tournamentId, nome);
+      dados[`placeholder${lado}`] = null;
+    }
+    const entryAId = dados.entryAId ?? match.entryAId;
+    const entryBId = dados.entryBId ?? match.entryBId;
+    if (entryAId && entryAId === entryBId) {
+      throw new ConflictException('Os participantes devem ser diferentes.');
+    }
+    return dados;
+  }
+
+  /**
+   * Rodada e vaga da partida no mata-mata, lidas do proprio id.
+   *
+   * O id das partidas do chaveamento tem a forma `<categoria>-advanced-r2-1`.
+   * Quem cadastra a chave da planilha usa esses ids de proposito, para que a
+   * partida ja agendada seja a MESMA que a progressao vai preencher.
+   *
+   * Vem do id, e nao do payload, porque assim os dois nao podem discordar. E
+   * sem a vaga preenchida a progressao nao encontra os confrontos da rodada:
+   * ela procura por vaga, daria uma lista vazia, e concluiria que o torneio
+   * acabou.
+   */
+  private posicaoNaChave(
+    id: string,
+    tournamentId: string,
+  ): { round: number; bracketSlot: number } | Record<string, never> {
+    const escapado = tournamentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const chave = new RegExp(`^${escapado}-advanced-r(\\d+)-(\\d+)$`).exec(id);
+    if (!chave) return {};
+    return { round: Number(chave[1]), bracketSlot: Number(chave[2]) };
+  }
+
+  /**
+   * Um lado da partida: equipe inscrita ou rotulo do que ainda sera decidido.
+   *
+   * Exatamente um dos dois. Aceitar os dois deixaria ambiguo qual vale, e
+   * aceitar nenhum criaria partida sem lado nenhum.
+   */
+  private ladoDaPartida(
+    match: Record<string, unknown>,
+    lado: 'A' | 'B',
+  ): { nome?: string; rotulo?: string } {
+    const campoNome = `entry${lado}`;
+    const campoRotulo = `placeholder${lado}`;
+    const temNome = match[campoNome] !== undefined && match[campoNome] !== null;
+    const temRotulo = match[campoRotulo] !== undefined && match[campoRotulo] !== null;
+    if (temNome && temRotulo) {
+      throw new ConflictException(
+        `Informe o participante ${lado} ou o rótulo do que será decidido, não os dois.`,
+      );
+    }
+    if (temRotulo) {
+      return {
+        rotulo: actionString(match, campoRotulo, `O rótulo do participante ${lado}`, {
+          min: 1,
+          max: 180,
+        }),
+      };
+    }
+    return {
+      nome: actionString(match, campoNome, `O participante ${lado}`, { min: 1, max: 180 }),
+    };
   }
 
   private async entryByName(
