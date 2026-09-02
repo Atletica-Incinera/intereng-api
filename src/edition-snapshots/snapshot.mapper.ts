@@ -228,7 +228,7 @@ export class SnapshotMapper {
       where: {
         editionId: edition.id,
         ...(options.public ? { removed: false } : {}),
-        ...(options.public || options.scope.kind === 'discipline'
+        ...(!options.public && options.scope.kind === 'discipline'
           ? { athleteId: { in: [...scopedAthleteIds] } }
           : {}),
         // Responsavel de atletica so enxerga o proprio elenco: o dos rivais nao
