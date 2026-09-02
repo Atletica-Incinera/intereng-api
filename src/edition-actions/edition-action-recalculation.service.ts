@@ -6,6 +6,8 @@ import {
   resolveActionRegulation,
 } from './action-regulation';
 
+import { Colocacao, lerColocacao, nomeDoGrupo } from './colocacao-do-chaveamento';
+
 const OFFICIAL_STATUSES: MatchStatus[] = [MatchStatus.FINISHED, MatchStatus.WALKOVER];
 
 interface StandingStats {
@@ -324,7 +326,25 @@ export class EditionActionRecalculationService {
         scheduledAt: true,
       },
     });
-    if (!advanced.length) {
+    const rounds = new Map<number, typeof advanced>();
+    for (const match of advanced) {
+      const round = match.round ?? this.roundFromId(match.id, tournament.id);
+      if (!round) continue;
+      rounds.set(round, [...(rounds.get(round) ?? []), match]);
+    }
+    const definida = (round: number) =>
+      (rounds.get(round) ?? []).every((match) => match.entryAId && match.entryBId);
+    /*
+     * A chave pode estar inteira na agenda antes de existir resultado: o
+     * importador cadastra o mata-mata da planilha com dia, hora e ginasio, e
+     * "VENCEDOR J3" no lugar do participante.
+     *
+     * Por isso a rodada de referencia nao e a ultima que existe -- e a ultima
+     * cujos participantes ja sao equipes de verdade. As seguintes estao ali
+     * esperando ser preenchidas, e preenche-las e justamente o trabalho.
+     */
+    const definidas = [...rounds.keys()].filter(definida);
+    if (!definidas.length) {
       await this.createFirstRound(
         transaction,
         tournament,
@@ -334,14 +354,7 @@ export class EditionActionRecalculationService {
       );
       return;
     }
-
-    const rounds = new Map<number, typeof advanced>();
-    for (const match of advanced) {
-      const round = match.round ?? this.roundFromId(match.id, tournament.id);
-      if (!round) continue;
-      rounds.set(round, [...(rounds.get(round) ?? []), match]);
-    }
-    const lastRound = Math.max(0, ...rounds.keys());
+    const lastRound = Math.max(...definidas);
     const current = (rounds.get(lastRound) ?? []).sort(
       (left, right) => (left.bracketSlot ?? 0) - (right.bracketSlot ?? 0),
     );
@@ -381,28 +394,25 @@ export class EditionActionRecalculationService {
       return;
     }
     const nextRound = lastRound + 1;
-    if (rounds.has(nextRound)) return;
+    if (rounds.has(nextRound) && definida(nextRound)) return;
     const pairs = this.sequentialPairs(winners);
     const nextDate = this.nextDate(current.map((match) => match.scheduledAt));
     await this.createRound(transaction, tournament.id, knockout.id, nextRound, pairs, nextDate);
     await this.storeProgressionByes(transaction, tournament.id, config, nextRound, pairs);
 
-    if (
-      advancement.thirdPlaceMatch &&
-      winners.length === 2 &&
-      current.length === 2 &&
-      !(await transaction.match.findUnique({
-        where: { id: `${tournament.id}-advanced-third` },
-        select: { id: true },
-      }))
-    ) {
+    if (advancement.thirdPlaceMatch && winners.length === 2 && current.length === 2) {
       const losers = current
         .map((match) => (match.winnerEntryId === match.entryAId ? match.entryBId : match.entryAId))
         .filter((entryId): entryId is string => Boolean(entryId));
-      if (losers.length === 2) {
+      const id = `${tournament.id}-advanced-third`;
+      const existente = await transaction.match.findUnique({
+        where: { id },
+        select: { status: true, entryAId: true, entryBId: true },
+      });
+      if (losers.length === 2 && !existente) {
         await transaction.match.create({
           data: this.matchCreateData(
-            `${tournament.id}-advanced-third`,
+            id,
             knockout.id,
             nextRound,
             null,
@@ -411,6 +421,13 @@ export class EditionActionRecalculationService {
             nextDate,
           ),
         });
+      } else if (
+        losers.length === 2 &&
+        existente &&
+        existente.status === MatchStatus.SCHEDULED &&
+        !(existente.entryAId && existente.entryBId)
+      ) {
+        await this.preencherParticipantes(transaction, id, losers[0], losers[1]);
       }
     }
   }
@@ -466,7 +483,9 @@ export class EditionActionRecalculationService {
         scoreFor: 0,
       }));
     }
-    const pairs = this.seedPairs(slots, advancement.crossing);
+    const pairs =
+      (await this.paresDaChavePublicada(transaction, tournament.id, classification, advancement)) ??
+      this.seedPairs(slots, advancement.crossing);
     if (!pairs.some((pair) => pair.entryBId)) return;
     const date = this.nextDate(sourceDates);
     await this.createRound(transaction, tournament.id, knockoutPhaseId, 1, pairs, date);
@@ -500,6 +519,110 @@ export class EditionActionRecalculationService {
         ),
       },
     });
+  }
+
+  /**
+   * Os cruzamentos que a organizacao publicou, resolvidos contra a
+   * classificacao real.
+   *
+   * A primeira rodada do mata-mata entra na agenda antes dos grupos acabarem,
+   * com o rotulo no lugar do participante: "1 GRUPO A x MELHOR TERCEIRO". Esse
+   * cruzamento e uma decisao da organizacao e nao sai de nenhuma regra de
+   * semeadura -- para o Futsal Masculino a semeadura automatica monta uma chave
+   * diferente da publicada. Quem manda e a chave publicada.
+   *
+   * Ou resolve tudo, ou nada. Meia chave lida da planilha e meia semeada
+   * automaticamente seria a pior das duas: um cruzamento que ninguem decidiu.
+   */
+  private async paresDaChavePublicada(
+    transaction: Prisma.TransactionClient,
+    tournamentId: string,
+    classification:
+      | {
+          id: string;
+          groups: Array<{ id: string; name: string; entries: Array<{ entryId: string }> }>;
+        }
+      | undefined,
+    advancement: AdvancementRule,
+  ): Promise<BracketPair[] | null> {
+    if (!classification) return null;
+    const agendadas = await transaction.match.findMany({
+      where: { id: { startsWith: `${tournamentId}-advanced-r1-` } },
+      orderBy: { bracketSlot: 'asc' },
+      select: { bracketSlot: true, placeholderA: true, placeholderB: true },
+    });
+    if (!agendadas.length) return null;
+
+    const colocacoes = await this.mapaDeColocacoes(transaction, classification, advancement);
+    const resolver = (rotulo: string | null): string | null => {
+      const colocacao = rotulo ? lerColocacao(rotulo) : null;
+      if (!colocacao) return null;
+      return this.entryDaColocacao(colocacao, colocacoes);
+    };
+
+    const pairs: BracketPair[] = [];
+    for (const partida of agendadas) {
+      const entryAId = resolver(partida.placeholderA);
+      const entryBId = resolver(partida.placeholderB);
+      if (!entryAId || !entryBId) return null;
+      pairs.push({ order: partida.bracketSlot ?? pairs.length + 1, entryAId, entryBId });
+    }
+    // Duas chaves apontando para a mesma equipe e planilha errada, nao chave.
+    const usados = new Set(pairs.flatMap((par) => [par.entryAId, par.entryBId]));
+    if (usados.size !== pairs.length * 2) return null;
+    return pairs;
+  }
+
+  private entryDaColocacao(
+    colocacao: Colocacao,
+    mapa: { porGrupo: Map<string, Map<number, string>>; terceiros: string[] },
+  ): string | null {
+    if (colocacao.tipo === 'melhor-terceiro') {
+      return mapa.terceiros[colocacao.posicao - 1] ?? null;
+    }
+    return mapa.porGrupo.get(colocacao.grupo)?.get(colocacao.posicao) ?? null;
+  }
+
+  private async mapaDeColocacoes(
+    transaction: Prisma.TransactionClient,
+    phase: {
+      id: string;
+      groups: Array<{ id: string; name: string; entries: Array<{ entryId: string }> }>;
+    },
+    advancement: AdvancementRule,
+  ): Promise<{ porGrupo: Map<string, Map<number, string>>; terceiros: string[] }> {
+    const standings = await transaction.phaseStanding.findMany({
+      where: { phaseId: phase.id },
+      select: { entryId: true, rank: true, points: true, scoreFor: true, scoreAgainst: true },
+    });
+    const byEntry = new Map(standings.map((standing) => [standing.entryId, standing]));
+    const porGrupo = new Map<string, Map<number, string>>();
+    for (const group of phase.groups) {
+      const posicoes = new Map<number, string>();
+      for (const entry of group.entries) {
+        const standing = byEntry.get(entry.entryId);
+        if (standing?.rank) posicoes.set(standing.rank, standing.entryId);
+      }
+      porGrupo.set(nomeDoGrupo(group.name), posicoes);
+    }
+    // O criterio dos melhores terceiros e o mesmo de collectQualifiers.
+    const terceiros = phase.groups
+      .map((group) =>
+        group.entries
+          .map((entry) => byEntry.get(entry.entryId))
+          .find((item) => item?.rank === advancement.perGroup + 1),
+      )
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .map((standing) => this.qualifierSlot(standing))
+      .sort(
+        (left, right) =>
+          right.points - left.points ||
+          right.balance - left.balance ||
+          right.scoreFor - left.scoreFor ||
+          left.entryId.localeCompare(right.entryId),
+      )
+      .map((slot) => slot.entryId);
+    return { porGrupo, terceiros };
   }
 
   private async collectQualifiers(
@@ -619,9 +742,31 @@ export class EditionActionRecalculationService {
     scheduledAt: Date,
   ): Promise<void> {
     for (const pair of pairs.filter((item) => item.entryBId)) {
+      const id = `${tournamentId}-advanced-r${round}-${pair.order}`;
+      const existente = await transaction.match.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      /*
+       * Ja na agenda: a partida veio da planilha com dia, hora e ginasio que a
+       * organizacao publicou, e um rotulo no lugar do participante. O que o
+       * resultado traz e so o nome -- o horario e o local ficam onde estao.
+       *
+       * Partida que ja saiu de SCHEDULED nao se toca: alguem esta operando ou
+       * ja operou aquele jogo, e reescrever quem joga apagaria o que a mesa
+       * anotou.
+       */
+      if (existente) {
+        if (existente.status !== MatchStatus.SCHEDULED) continue;
+        await this.preencherParticipantes(transaction, id, pair.entryAId, pair.entryBId!, {
+          round,
+          bracketSlot: pair.order,
+        });
+        continue;
+      }
       await transaction.match.create({
         data: this.matchCreateData(
-          `${tournamentId}-advanced-r${round}-${pair.order}`,
+          id,
           phaseId,
           round,
           pair.order,
@@ -634,6 +779,29 @@ export class EditionActionRecalculationService {
     await transaction.tournament.update({
       where: { id: tournamentId },
       data: { status: TournamentStatus.ONGOING },
+    });
+  }
+
+  /**
+   * Troca o rotulo pelo participante de verdade, sem mexer em mais nada. Dia,
+   * hora e ginasio sao da organizacao; a chave so descobre quem joga.
+   */
+  private async preencherParticipantes(
+    transaction: Prisma.TransactionClient,
+    id: string,
+    entryAId: string,
+    entryBId: string,
+    posicao?: { round: number; bracketSlot: number },
+  ): Promise<void> {
+    await transaction.match.update({
+      where: { id },
+      data: {
+        entryAId,
+        entryBId,
+        placeholderA: null,
+        placeholderB: null,
+        ...(posicao ?? {}),
+      },
     });
   }
 
