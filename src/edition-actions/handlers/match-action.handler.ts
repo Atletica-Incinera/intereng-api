@@ -230,6 +230,7 @@ export class MatchActionHandler {
         entryBId,
         ...(placeholderA ? { placeholderA } : {}),
         ...(placeholderB ? { placeholderB } : {}),
+        ...this.posicaoNaChave(id, tournamentId),
         status: MatchStatus.SCHEDULED,
         scheduledAt: scheduledAt(date, time),
         venue,
@@ -1489,6 +1490,28 @@ export class MatchActionHandler {
     });
     if (!phase) throw new NotFoundException('A fase informada não pertence à categoria.');
     return { phaseId: phase.id, groupId: null };
+  }
+
+  /**
+   * Rodada e vaga da partida no mata-mata, lidas do proprio id.
+   *
+   * O id das partidas do chaveamento tem a forma `<categoria>-advanced-r2-1`.
+   * Quem cadastra a chave da planilha usa esses ids de proposito, para que a
+   * partida ja agendada seja a MESMA que a progressao vai preencher.
+   *
+   * Vem do id, e nao do payload, porque assim os dois nao podem discordar. E
+   * sem a vaga preenchida a progressao nao encontra os confrontos da rodada:
+   * ela procura por vaga, daria uma lista vazia, e concluiria que o torneio
+   * acabou.
+   */
+  private posicaoNaChave(
+    id: string,
+    tournamentId: string,
+  ): { round: number; bracketSlot: number } | Record<string, never> {
+    const escapado = tournamentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const chave = new RegExp(`^${escapado}-advanced-r(\\d+)-(\\d+)$`).exec(id);
+    if (!chave) return {};
+    return { round: Number(chave[1]), bracketSlot: Number(chave[2]) };
   }
 
   /**

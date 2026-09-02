@@ -44,6 +44,33 @@ describe('MatchActionHandler — participante a definir', () => {
     expect(() => lado({}, 'A')).toThrow();
   });
 
+  describe('posição na chave, lida do próprio id', () => {
+    const posicao = (id: string, torneio: string) =>
+      (
+        new MatchActionHandler() as unknown as {
+          posicaoNaChave(i: string, t: string): Record<string, number>;
+        }
+      ).posicaoNaChave(id, torneio);
+
+    it('lê rodada e vaga do id que a progressão usa', () => {
+      expect(posicao('cat-abc-advanced-r2-1', 'cat-abc')).toEqual({ round: 2, bracketSlot: 1 });
+      expect(posicao('cat-abc-advanced-r1-4', 'cat-abc')).toEqual({ round: 1, bracketSlot: 4 });
+    });
+
+    it('não inventa posição para partida comum', () => {
+      // Sem a vaga, a progressão procuraria os confrontos da rodada por vaga,
+      // acharia lista vazia e concluiria que o torneio acabou. Por isso o id
+      // do mata-mata é obrigatório para a chave — e proibido para o resto.
+      expect(posicao('match-qualquer', 'cat-abc')).toEqual({});
+      expect(posicao('cat-abc-advanced-third', 'cat-abc')).toEqual({});
+      expect(posicao('outra-cat-advanced-r1-1', 'cat-abc')).toEqual({});
+    });
+
+    it('id de categoria com caractere de regex não quebra a leitura', () => {
+      expect(posicao('cat.a+b-advanced-r3-2', 'cat.a+b')).toEqual({ round: 3, bracketSlot: 2 });
+    });
+  });
+
   it('não transforma nome desconhecido em rótulo', () => {
     // "Tubaroes" sem acento não é um rótulo: é um nome errado, e continua
     // seguindo o caminho de equipe inscrita, onde será recusado por não
