@@ -1322,7 +1322,20 @@ export class MatchActionHandler {
     const id = actionId(payload, 'id', 'O ID da partida');
     const eventId = actionId(payload, 'eventId', 'O ID do evento');
     const match = await this.matchOrThrow(context, id);
-    this.assertOperator(match, context);
+    /*
+     * Enquanto a partida esta ao vivo, a trava de operador vale: ela existe
+     * para dois aparelhos nao brigarem pelo placar.
+     *
+     * Depois do apito, dizer quem marcou deixa de ser operar e vira registro.
+     * Exigir a trava ali obrigava a mesa a reassumir a partida so para
+     * informar o autor -- e a trava vence sozinha quando a tela fecha, entao
+     * na pratica a atribuicao pos-jogo simplesmente nao acontecia. Quem pode
+     * atribuir continua sendo quem pode operar aquela modalidade; o que muda e
+     * so a exigencia de estar com o placar na mao.
+     */
+    if (match.status === MatchStatus.LIVE) {
+      this.assertOperator(match, context);
+    }
 
     const evento = await context.transaction.matchEvent.findFirst({
       where: { id: eventId, matchId: id, undoneAt: null },
