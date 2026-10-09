@@ -49,6 +49,12 @@ jobs:
       # banco é testar outro banco.
       postgres:
         image: postgres:16-alpine
+        # Services são iniciados antes dos `steps`; portanto um `docker login`
+        # posterior seria tarde demais. As credenciais evitam o limite de pull
+        # anônimo do Docker Hub no IP compartilhado dos runners do GitHub.
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -62,6 +68,9 @@ jobs:
           --health-retries 20
       redis:
         image: redis:7-alpine
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         # Sem `--requirepass`, ao contrário do compose local. O Redis aqui vive
         # os poucos minutos do job, dentro da rede do runner, e a senha só
         # serviria para criar mais uma chance de a URL e o container divergirem.
