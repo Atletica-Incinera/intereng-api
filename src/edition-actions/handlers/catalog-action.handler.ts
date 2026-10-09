@@ -265,6 +265,35 @@ export class CatalogActionHandler {
     return { entityType: 'Team', entityId: created.id };
   }
 
+  /**
+   * Inclui uma equipe do catálogo global na edição corrente.
+   *
+   * A equipe continua sendo uma entidade única (nome, escudo e responsável),
+   * enquanto `EditionTeam` guarda a participação dela em cada edição. `upsert`
+   * torna o gesto seguro para reenvio de rede e também reativa um vínculo que
+   * tenha sido arquivado somente nesta edição.
+   */
+  async teamAttach(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['id']);
+    const id = actionId(payload, 'id', 'O ID da equipe');
+    const team = await context.transaction.team.findUnique({
+      where: { id },
+      select: { id: true, archived: true },
+    });
+    if (!team) throw new NotFoundException('Equipe não encontrada no catálogo global.');
+    if (team.archived) throw new ConflictException('Esta equipe está arquivada no catálogo global.');
+
+    await context.transaction.editionTeam.upsert({
+      where: { editionId_teamId: { editionId: context.edition.id, teamId: id } },
+      create: { editionId: context.edition.id, teamId: id },
+      update: { archived: false },
+    });
+    return { entityType: 'EditionTeam', entityId: id };
+  }
+
   async teamUpdate(
     context: EditionActionContext,
     payload: Record<string, unknown>,

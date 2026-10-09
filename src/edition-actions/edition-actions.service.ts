@@ -130,6 +130,7 @@ export class EditionActionsService {
       'discipline/update': (context, payload) => catalogActions.disciplineUpdate(context, payload),
       'discipline/delete': (context, payload) => catalogActions.disciplineDelete(context, payload),
       'team/create': (context, payload) => catalogActions.teamCreate(context, payload),
+      'team/attach': (context, payload) => catalogActions.teamAttach(context, payload),
       'team/update': (context, payload) => catalogActions.teamUpdate(context, payload),
       'athlete/create': (context, payload) => catalogActions.athleteCreate(context, payload),
       'athlete/update': (context, payload) => catalogActions.athleteUpdate(context, payload),

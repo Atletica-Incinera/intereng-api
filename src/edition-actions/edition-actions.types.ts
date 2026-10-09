@@ -24,6 +24,7 @@ export const EDITION_ACTION_TYPES = [
   'discipline/update',
   'discipline/delete',
   'team/create',
+  'team/attach',
   'team/update',
   'athlete/create',
   'athlete/update',
