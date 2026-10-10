@@ -59,6 +59,7 @@ const GLOBAL_ACTIONS = new Set<EditionActionType>([
 const MANAGER_ACTIONS = new Set<EditionActionType>([
   'match/schedule',
   'match/update',
+  'match/delete',
   'match/start',
   'match/updateClock',
   'match/registerEvent',
@@ -111,6 +112,7 @@ export class EditionActionsService {
     this.registry = {
       'match/schedule': (context, payload) => matchActions.schedule(context, payload),
       'match/update': (context, payload, audit) => matchActions.update(context, payload, audit),
+      'match/delete': (context, payload) => matchActions.delete(context, payload),
       'match/start': (context, payload, audit) => matchActions.start(context, payload, audit),
       'match/updateClock': (context, payload) => matchActions.updateClock(context, payload),
       'match/registerEvent': (context, payload) => matchActions.registerEvent(context, payload),

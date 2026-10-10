@@ -8,6 +8,7 @@ import { EditionActionAuditDto } from './dto/edition-action.dto';
 export const EDITION_ACTION_TYPES = [
   'match/schedule',
   'match/update',
+  'match/delete',
   'match/start',
   'match/updateClock',
   'match/registerEvent',

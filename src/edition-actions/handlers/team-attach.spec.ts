@@ -4,7 +4,9 @@ import { EditionActionContext } from '../edition-actions.types';
 import { CatalogActionHandler } from './catalog-action.handler';
 
 describe('CatalogActionHandler — vínculo de equipe do catálogo', () => {
-  function montar(team: { id: string; archived: boolean } | null = { id: 'alcateia', archived: false }) {
+  function montar(
+    team: { id: string; archived: boolean } | null = { id: 'alcateia', archived: false },
+  ) {
     const upsert = jest.fn().mockResolvedValue({ id: 'link-1' });
     const handler = new CatalogActionHandler({} as UploadsService);
     const context = {
@@ -21,7 +23,8 @@ describe('CatalogActionHandler — vínculo de equipe do catálogo', () => {
     const { handler, context, upsert } = montar();
 
     await expect(handler.teamAttach(context, { id: 'alcateia' })).resolves.toEqual({
-      entityType: 'EditionTeam', entityId: 'alcateia',
+      entityType: 'EditionTeam',
+      entityId: 'alcateia',
     });
     expect(upsert).toHaveBeenCalledWith({
       where: { editionId_teamId: { editionId: 'copa-halterada-2026', teamId: 'alcateia' } },
@@ -32,11 +35,13 @@ describe('CatalogActionHandler — vínculo de equipe do catálogo', () => {
 
   it('recusa id inexistente e equipe arquivada globalmente', async () => {
     const missing = montar(null);
-    await expect(missing.handler.teamAttach(missing.context, { id: 'nao-existe' }))
-      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      missing.handler.teamAttach(missing.context, { id: 'nao-existe' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     const archived = montar({ id: 'alcateia', archived: true });
-    await expect(archived.handler.teamAttach(archived.context, { id: 'alcateia' }))
-      .rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      archived.handler.teamAttach(archived.context, { id: 'alcateia' }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

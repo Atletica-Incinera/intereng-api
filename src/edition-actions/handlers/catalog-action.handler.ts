@@ -284,7 +284,8 @@ export class CatalogActionHandler {
       select: { id: true, archived: true },
     });
     if (!team) throw new NotFoundException('Equipe não encontrada no catálogo global.');
-    if (team.archived) throw new ConflictException('Esta equipe está arquivada no catálogo global.');
+    if (team.archived)
+      throw new ConflictException('Esta equipe está arquivada no catálogo global.');
 
     await context.transaction.editionTeam.upsert({
       where: { editionId_teamId: { editionId: context.edition.id, teamId: id } },
