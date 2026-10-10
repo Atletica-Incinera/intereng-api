@@ -346,12 +346,21 @@ export class MatchActionHandler {
     return this.result(match, id);
   }
 
-  async delete(context: EditionActionContext, payload: Record<string, unknown>): Promise<ActionMutationResult> {
+  async delete(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+  ): Promise<ActionMutationResult> {
     actionObject(payload, 'O payload', ['id']);
     const id = actionId(payload, 'id', 'O ID da partida');
     const match = await this.matchOrThrow(context, id);
-    if (match.status !== MatchStatus.SCHEDULED || match.lastEventSequence !== 0 || match.startedAt) {
-      throw new ConflictException('Só é possível excluir uma partida agendada que nunca foi iniciada.');
+    if (
+      match.status !== MatchStatus.SCHEDULED ||
+      match.lastEventSequence !== 0 ||
+      match.startedAt
+    ) {
+      throw new ConflictException(
+        'Só é possível excluir uma partida agendada que nunca foi iniciada.',
+      );
     }
     await context.transaction.match.delete({ where: { id } });
     return this.result(match, id);

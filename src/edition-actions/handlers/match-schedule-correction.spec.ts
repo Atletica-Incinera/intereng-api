@@ -44,7 +44,9 @@ describe('correções de partidas agendadas', () => {
 
   it('não move partida iniciada', async () => {
     const { handler, context, transaction } = setup(stored({ status: MatchStatus.LIVE }));
-    await expect(handler.update(context, { id: 'partida-1', patch: { phase: 'Grupo B' } })).rejects.toThrow(ConflictException);
+    await expect(
+      handler.update(context, { id: 'partida-1', patch: { phase: 'Grupo B' } }),
+    ).rejects.toThrow(ConflictException);
     expect(transaction.match.update).not.toHaveBeenCalled();
   });
 
