@@ -144,6 +144,7 @@ interface StoredMatchContext {
   runningSince: Date | null;
   status: MatchStatus;
   scheduledAt: Date | null;
+  startedAt: Date | null;
   venue: string | null;
   lastEventSequence: number;
   operatorId: string | null;
@@ -275,6 +276,17 @@ export class MatchActionHandler {
     const time =
       patch.time === undefined ? currentTime : actionTime(patch, 'time', 'O horário da partida');
     const venue = optionalActionString(patch, 'venue', 'O local da partida', { min: 2, max: 200 });
+    const phaseName = optionalActionString(patch, 'phase', 'A fase da partida', {
+      min: 1,
+      max: 160,
+    });
+    if (phaseName !== undefined && match.status !== MatchStatus.SCHEDULED) {
+      throw new ConflictException('A fase só pode ser alterada enquanto a partida está agendada.');
+    }
+    const phase =
+      phaseName === undefined
+        ? undefined
+        : await this.phaseContext(context.transaction, match.phase.tournamentId, phaseName);
     const reason = optionalActionString(patch, 'reason', 'O motivo da alteração', {
       min: 5,
       max: 1_000,
@@ -319,6 +331,7 @@ export class MatchActionHandler {
           ? { scheduledAt: scheduledAt(date, time) }
           : {}),
         ...(venue !== undefined ? { venue } : {}),
+        ...(phase ? { phaseId: phase.phaseId, groupId: phase.groupId } : {}),
         ...(reason !== undefined ? { reason } : {}),
         ...(scoreA !== undefined ? { scoreA } : {}),
         ...(scoreB !== undefined ? { scoreB } : {}),
@@ -330,6 +343,17 @@ export class MatchActionHandler {
     if (requestedStatus === MatchStatus.WALKOVER) {
       await this.recalculation.recomputeTournament(context.transaction, match.phase.tournamentId);
     }
+    return this.result(match, id);
+  }
+
+  async delete(context: EditionActionContext, payload: Record<string, unknown>): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['id']);
+    const id = actionId(payload, 'id', 'O ID da partida');
+    const match = await this.matchOrThrow(context, id);
+    if (match.status !== MatchStatus.SCHEDULED || match.lastEventSequence !== 0 || match.startedAt) {
+      throw new ConflictException('Só é possível excluir uma partida agendada que nunca foi iniciada.');
+    }
+    await context.transaction.match.delete({ where: { id } });
     return this.result(match, id);
   }
 
@@ -1440,6 +1464,7 @@ export class MatchActionHandler {
         runningSince: true,
         status: true,
         scheduledAt: true,
+        startedAt: true,
         venue: true,
         lastEventSequence: true,
         operatorId: true,
