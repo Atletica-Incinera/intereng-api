@@ -177,10 +177,14 @@ export class EditionActionRecalculationService {
     });
     if (!matches.length) return;
     const started = matches.some((match) =>
-      ([MatchStatus.LIVE, MatchStatus.FINISHED, MatchStatus.WALKOVER] as MatchStatus[]).includes(match.status),
+      ([MatchStatus.LIVE, MatchStatus.FINISHED, MatchStatus.WALKOVER] as MatchStatus[]).includes(
+        match.status,
+      ),
     );
     const pending = matches.some((match) =>
-      ([MatchStatus.SCHEDULED, MatchStatus.LIVE, MatchStatus.POSTPONED] as MatchStatus[]).includes(match.status),
+      ([MatchStatus.SCHEDULED, MatchStatus.LIVE, MatchStatus.POSTPONED] as MatchStatus[]).includes(
+        match.status,
+      ),
     );
     const hasKnockout = tournament.phases.some((phase) => phase.type === PhaseType.KNOCKOUT);
     const next =

@@ -298,7 +298,9 @@ describe('GlobalExceptionFilter', () => {
   });
 
   it('should map standard Error to 500 INTERNAL_ERROR without leaking its message', () => {
-    const exception = new Error('Invalid `prisma.x()` invocation in C:\src\handler.ts: violates check constraint');
+    const exception = new Error(
+      'Invalid `prisma.x()` invocation in /app/src/handler.ts: violates check constraint',
+    );
 
     filter.catch(exception, mockArgumentsHost);
 

@@ -620,10 +620,16 @@ export class EditionActionsService {
     const scopeExists =
       role === 'Responsável da atlética'
         ? transaction.editionTeam
-            .findFirst({ where: { editionId, team: { name: scopeName } }, select: { teamId: true } })
+            .findFirst({
+              where: { editionId, team: { name: scopeName } },
+              select: { teamId: true },
+            })
             .then((found) => Boolean(found))
         : transaction.editionDiscipline
-            .findFirst({ where: { editionId, discipline: { name: scopeName } }, select: { id: true } })
+            .findFirst({
+              where: { editionId, discipline: { name: scopeName } },
+              select: { id: true },
+            })
             .then((found) => Boolean(found));
     const [target, discipline] = await Promise.all([
       transaction.staff.findUnique({
