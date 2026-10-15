@@ -705,6 +705,18 @@ export class MatchActionHandler {
       scoreA = result.scoreA;
       scoreB = result.scoreB;
     } else if (eventPoints > 0) {
+      // Partida por sets já decidida não aceita ponto: o toque a mais fazia o
+      // set fechado "vencer de novo" e somava um set que não existiu (0×3 numa
+      // melhor de 3, com a parcial sobrescrita). Aconteceu em 3 jogos de 2026.
+      if (
+        regulation.completion.mode === 'sets' &&
+        (match.scoreA >= regulation.completion.setsToWin ||
+          match.scoreB >= regulation.completion.setsToWin)
+      ) {
+        throw new ConflictException(
+          `A partida já está decidida (${match.scoreA} × ${match.scoreB} em sets): encerre o jogo.`,
+        );
+      }
       const nextPeriodA = periodScoreA + (sideLabel === 'home' ? eventPoints : 0);
       const nextPeriodB = periodScoreB + (sideLabel === 'away' ? eventPoints : 0);
       if (regulation.completion.mode === 'sets') {
@@ -904,7 +916,7 @@ export class MatchActionHandler {
     this.assertOperator(match, context);
     const event = await context.transaction.matchEvent.findFirst({
       where: { id: eventId, matchId: id, undoneAt: null },
-      select: { id: true, sequence: true, previousScore: true },
+      select: { id: true, sequence: true, previousScore: true, scoreA: true, scoreB: true },
     });
     if (!event) throw new NotFoundException('Evento não encontrado ou já desfeito.');
     const latest = await context.transaction.matchEvent.findFirst({
@@ -922,9 +934,25 @@ export class MatchActionHandler {
       where: { id: event.id },
       data: { undoneAt: new Date(), undoneById: context.user.id },
     });
-    await context.transaction.matchPeriodResult.deleteMany({
-      where: { matchId: id, period: { gte: previous.currentPeriod } },
-    });
+    const regulation = resolveActionRegulation(
+      match.phase.tournament.editionDiscipline.discipline.name,
+      match.phase.tournament.editionDiscipline.config,
+    );
+    if (regulation.completion.mode === 'sets') {
+      // Só sai a parcial do set que ESTE lance fechou. Apagar tudo a partir da
+      // etapa anterior levava junto a parcial legítima do set decisivo.
+      const closedSet =
+        (event.scoreA ?? 0) + (event.scoreB ?? 0) > previous.scoreA + previous.scoreB;
+      if (closedSet) {
+        await context.transaction.matchPeriodResult.deleteMany({
+          where: { matchId: id, period: previous.currentPeriod },
+        });
+      }
+    } else {
+      await context.transaction.matchPeriodResult.deleteMany({
+        where: { matchId: id, period: { gte: previous.currentPeriod } },
+      });
+    }
     await context.transaction.match.update({
       where: { id },
       data: {
@@ -1007,77 +1035,9 @@ export class MatchActionHandler {
       match.scoreA === match.scoreB &&
       (match.phase.type === PhaseType.KNOCKOUT || !completionAllowsDraw);
     if (requiresTiebreak) {
-      const rawTiebreak = actionObject(patch.tiebreak, 'O desempate', [
-        'method',
-        'label',
-        'scoreA',
-        'scoreB',
-        'winner',
-        'reason',
-        'decidedBy',
-        'at',
-      ]);
-      const method = actionEnum(rawTiebreak, 'method', 'O método de desempate', [
-        'prorrogacao',
-        'penaltis',
-        'set-extra',
-        'criterio-tecnico',
-        'administrativo',
-      ] as const);
-      const label = actionString(rawTiebreak, 'label', 'A descrição do desempate', {
-        min: 2,
-        max: 160,
-      });
-      const tiebreakScoreA = actionNumber(rawTiebreak, 'scoreA', 'O placar A do desempate', {
-        min: 0,
-        max: 100_000,
-      });
-      const tiebreakScoreB = actionNumber(rawTiebreak, 'scoreB', 'O placar B do desempate', {
-        min: 0,
-        max: 100_000,
-      });
-      const winnerName = actionString(rawTiebreak, 'winner', 'O vencedor do desempate', {
-        min: 1,
-        max: 180,
-      });
-      const reason = actionString(rawTiebreak, 'reason', 'O motivo do desempate', {
-        min: 5,
-        max: 1_000,
-      });
-      winnerEntryId = await this.entryByName(
-        context.transaction,
-        match.phase.tournamentId,
-        winnerName,
-      );
-      if (winnerEntryId !== match.entryAId && winnerEntryId !== match.entryBId) {
-        throw new ConflictException('O vencedor do desempate deve ser um participante da partida.');
-      }
-      if (tiebreakScoreA === tiebreakScoreB && method !== 'administrativo') {
-        throw new ConflictException(
-          'Um desempate com placar empatado deve usar decisão administrativa explícita.',
-        );
-      }
-      if (tiebreakScoreA !== tiebreakScoreB) {
-        const scoreWinner = tiebreakScoreA > tiebreakScoreB ? match.entryAId : match.entryBId;
-        if (winnerEntryId !== scoreWinner) {
-          throw new ConflictException(
-            'O vencedor informado não corresponde ao placar do desempate.',
-          );
-        }
-      }
-      tiebreak = toInputJson(
-        {
-          method,
-          label,
-          scoreA: tiebreakScoreA,
-          scoreB: tiebreakScoreB,
-          winner: winnerName,
-          reason,
-          decidedBy: context.actorName,
-          at: new Date().toISOString(),
-        },
-        'O desempate',
-      );
+      const decided = await this.parseTiebreak(context, match, patch.tiebreak);
+      winnerEntryId = decided.winnerEntryId;
+      tiebreak = decided.tiebreak;
     } else if (match.scoreA !== match.scoreB) {
       winnerEntryId = match.scoreA > match.scoreB ? match.entryAId : match.entryBId;
     }
@@ -1203,6 +1163,271 @@ export class MatchActionHandler {
     });
     await this.recalculation.recomputeTournament(context.transaction, match.phase.tournamentId);
     return this.result(match, id);
+  }
+
+  /**
+   * Lança o resultado final de uma partida pela súmula, sem lance a lance.
+   *
+   * Em 2026 cerca de 70% dos jogos foram digitados depois do apito, ponto por
+   * ponto: um jogo de vôlei custava ~88 toques e as parciais saíam inventadas.
+   * Aqui entra o placar final (por set, no vôlei) de uma vez, validado pelo
+   * regulamento. Não cria eventos e não preenche o início: nada do que se
+   * grava finge que a mesa operou o jogo ao vivo.
+   */
+  async recordResult(
+    context: EditionActionContext,
+    payload: Record<string, unknown>,
+    audit?: EditionActionAuditDto,
+  ): Promise<ActionMutationResult> {
+    actionObject(payload, 'O payload', ['id', 'scoreA', 'scoreB', 'periods', 'tiebreak']);
+    const id = actionId(payload, 'id', 'O ID da partida');
+    const match = await this.matchOrThrow(context, id);
+    const untouchedLive =
+      match.status === MatchStatus.LIVE &&
+      (await context.transaction.matchEvent.count({ where: { matchId: id, undoneAt: null } })) ===
+        0;
+    if (
+      match.status !== MatchStatus.SCHEDULED &&
+      match.status !== MatchStatus.POSTPONED &&
+      !untouchedLive
+    ) {
+      throw new ConflictException(
+        'Só dá para lançar pela súmula um jogo que ainda não teve lance registrado. Para corrigir um resultado já encerrado, use a retificação.',
+      );
+    }
+    if (!match.entryAId || !match.entryBId) {
+      throw new ConflictException('Defina os dois participantes antes de lançar o resultado.');
+    }
+    const regulation = resolveActionRegulation(
+      match.phase.tournament.editionDiscipline.discipline.name,
+      match.phase.tournament.editionDiscipline.config,
+    );
+
+    const rawPeriods =
+      payload.periods === undefined || payload.periods === null
+        ? []
+        : actionArray(payload.periods, 'As parciais', 20);
+    const periods = rawPeriods.map((value, index) => {
+      const period = actionObject(value, `A parcial ${index + 1}`, ['scoreA', 'scoreB']);
+      return {
+        period: index + 1,
+        scoreA: actionNumber(period, 'scoreA', `O placar A da parcial ${index + 1}`, {
+          min: 0,
+          max: 1_000,
+        }),
+        scoreB: actionNumber(period, 'scoreB', `O placar B da parcial ${index + 1}`, {
+          min: 0,
+          max: 1_000,
+        }),
+      };
+    });
+
+    let scoreA: number;
+    let scoreB: number;
+    if (regulation.completion.mode === 'sets') {
+      const completion = regulation.completion;
+      if (!periods.length) {
+        throw new BadRequestException('Informe o placar de cada set.');
+      }
+      scoreA = 0;
+      scoreB = 0;
+      for (const set of periods) {
+        if (scoreA >= completion.setsToWin || scoreB >= completion.setsToWin) {
+          throw new BadRequestException(
+            `A partida já estava decidida antes do ${set.period}º set.`,
+          );
+        }
+        const winner = this.validSetWinner(regulation, set.period, set.scoreA, set.scoreB);
+        if (winner === 'home') scoreA += 1;
+        else scoreB += 1;
+      }
+      if (scoreA < completion.setsToWin && scoreB < completion.setsToWin) {
+        throw new BadRequestException(
+          `Nenhuma equipe venceu ${completion.setsToWin} sets: falta informar set.`,
+        );
+      }
+    } else {
+      scoreA = actionNumber(payload, 'scoreA', 'O placar final do participante A', {
+        min: 0,
+        max: 100_000,
+      });
+      scoreB = actionNumber(payload, 'scoreB', 'O placar final do participante B', {
+        min: 0,
+        max: 100_000,
+      });
+      if (periods.length) {
+        const sumA = periods.reduce((total, item) => total + item.scoreA, 0);
+        const sumB = periods.reduce((total, item) => total + item.scoreB, 0);
+        if (sumA !== scoreA || sumB !== scoreB) {
+          throw new BadRequestException(
+            `As parciais somam ${sumA} × ${sumB}, mas o placar final informado é ${scoreA} × ${scoreB}.`,
+          );
+        }
+      }
+    }
+
+    const completionAllowsDraw =
+      regulation.completion.mode === 'periods' ||
+      regulation.completion.mode === 'board' ||
+      regulation.completion.mode === 'result'
+        ? regulation.completion.allowDraw
+        : false;
+    let winnerEntryId: string | null = null;
+    let tiebreak: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+    if (scoreA === scoreB) {
+      if (match.phase.type === PhaseType.KNOCKOUT || !completionAllowsDraw) {
+        const decided = await this.parseTiebreak(context, match, payload.tiebreak);
+        winnerEntryId = decided.winnerEntryId;
+        tiebreak = decided.tiebreak;
+      }
+    } else {
+      winnerEntryId = scoreA > scoreB ? match.entryAId : match.entryBId;
+    }
+
+    await context.transaction.matchPeriodResult.deleteMany({ where: { matchId: id } });
+    if (periods.length) {
+      await context.transaction.matchPeriodResult.createMany({
+        data: periods.map((item) => ({ matchId: id, ...item })),
+      });
+    }
+    await context.transaction.match.update({
+      where: { id },
+      data: {
+        status: MatchStatus.FINISHED,
+        scoreA,
+        scoreB,
+        periodScoreA: 0,
+        periodScoreB: 0,
+        currentPeriod: Math.max(1, periods.length || regulationPeriodCount(regulation)),
+        paused: true,
+        runningSince: null,
+        clockSeconds: 0,
+        winnerEntryId,
+        walkoverWinnerEntryId: null,
+        tiebreak,
+        operatorDeviceId: null,
+        operatorName: null,
+        operatorId: null,
+        operatorHeartbeat: null,
+        startNote: audit?.reason ?? 'Resultado lançado pela súmula.',
+      },
+    });
+    await this.recalculation.recomputeTournament(context.transaction, match.phase.tournamentId);
+    return this.result(match, id);
+  }
+
+  /**
+   * Set válido pela súmula: o vencedor chega ao alvo com a vantagem mínima e,
+   * passado o alvo, termina exatamente com a vantagem (25-23, 26-24; nunca
+   * 26-10, que só aparecia por toque a mais depois do fim).
+   */
+  private validSetWinner(
+    regulation: ActionRegulation,
+    period: number,
+    scoreA: number,
+    scoreB: number,
+  ): 'home' | 'away' {
+    if (regulation.completion.mode !== 'sets') {
+      throw new BadRequestException('A modalidade não é disputada por sets.');
+    }
+    const completion = regulation.completion;
+    const decidingSet = completion.setsToWin * 2 - 1;
+    const target =
+      period >= decidingSet ? completion.pointsToWinDecidingSet : completion.pointsToWinSet;
+    const winner = setWinner(regulation, period, scoreA, scoreB);
+    const high = Math.max(scoreA, scoreB);
+    const low = Math.min(scoreA, scoreB);
+    if (!winner || (high > target && high - low !== completion.minAdvantage)) {
+      throw new BadRequestException(
+        `O ${period}º set (${scoreA}-${scoreB}) não é um placar de set válido: vai a ${target} com ${completion.minAdvantage} de vantagem.`,
+      );
+    }
+    return winner;
+  }
+
+  /** Desempate de partida que não pode terminar empatada (ao vivo e súmula). */
+  private async parseTiebreak(
+    context: EditionActionContext,
+    match: StoredMatchContext,
+    raw: unknown,
+  ): Promise<{ winnerEntryId: string; tiebreak: Prisma.InputJsonValue }> {
+    if (raw === undefined || raw === null) {
+      throw new ConflictException(
+        'Esta partida não pode terminar empatada: informe o desempate (pênaltis, prorrogação ou decisão).',
+      );
+    }
+    const rawTiebreak = actionObject(raw, 'O desempate', [
+      'method',
+      'label',
+      'scoreA',
+      'scoreB',
+      'winner',
+      'reason',
+      'decidedBy',
+      'at',
+    ]);
+    const method = actionEnum(rawTiebreak, 'method', 'O método de desempate', [
+      'prorrogacao',
+      'penaltis',
+      'set-extra',
+      'criterio-tecnico',
+      'administrativo',
+    ] as const);
+    const label = actionString(rawTiebreak, 'label', 'A descrição do desempate', {
+      min: 2,
+      max: 160,
+    });
+    const tiebreakScoreA = actionNumber(rawTiebreak, 'scoreA', 'O placar A do desempate', {
+      min: 0,
+      max: 100_000,
+    });
+    const tiebreakScoreB = actionNumber(rawTiebreak, 'scoreB', 'O placar B do desempate', {
+      min: 0,
+      max: 100_000,
+    });
+    const winnerName = actionString(rawTiebreak, 'winner', 'O vencedor do desempate', {
+      min: 1,
+      max: 180,
+    });
+    const reason = actionString(rawTiebreak, 'reason', 'O motivo do desempate', {
+      min: 5,
+      max: 1_000,
+    });
+    const winnerEntryId = await this.entryByName(
+      context.transaction,
+      match.phase.tournamentId,
+      winnerName,
+    );
+    if (winnerEntryId !== match.entryAId && winnerEntryId !== match.entryBId) {
+      throw new ConflictException('O vencedor do desempate deve ser um participante da partida.');
+    }
+    if (tiebreakScoreA === tiebreakScoreB && method !== 'administrativo') {
+      throw new ConflictException(
+        'Um desempate com placar empatado deve usar decisão administrativa explícita.',
+      );
+    }
+    if (tiebreakScoreA !== tiebreakScoreB) {
+      const scoreWinner = tiebreakScoreA > tiebreakScoreB ? match.entryAId : match.entryBId;
+      if (winnerEntryId !== scoreWinner) {
+        throw new ConflictException('O vencedor informado não corresponde ao placar do desempate.');
+      }
+    }
+    return {
+      winnerEntryId,
+      tiebreak: toInputJson(
+        {
+          method,
+          label,
+          scoreA: tiebreakScoreA,
+          scoreB: tiebreakScoreB,
+          winner: winnerName,
+          reason,
+          decidedBy: context.actorName,
+          at: new Date().toISOString(),
+        },
+        'O desempate',
+      ),
+    };
   }
 
   private async dependentMatches(
@@ -1393,7 +1618,14 @@ export class MatchActionHandler {
       where: { id: eventId },
       data: { athleteId },
     });
-    return { entityType: 'MatchEvent', entityId: eventId };
+    // Sem a modalidade no resultado, a checagem de escopo do despachante
+    // recusava a atribuição de todo gestor de modalidade — justamente quem
+    // opera a mesa — com "dados fora da modalidade permitida".
+    return {
+      entityType: 'MatchEvent',
+      entityId: eventId,
+      editionDisciplineId: match.phase.tournament.editionDisciplineId,
+    };
   }
 
   private async resolveEventAthlete(

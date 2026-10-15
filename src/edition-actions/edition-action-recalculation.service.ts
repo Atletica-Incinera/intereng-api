@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MatchStatus, PhaseType, Prisma, TournamentStatus } from '@prisma/client';
+import { EditionStatus, MatchStatus, PhaseType, Prisma, TournamentStatus } from '@prisma/client';
 import {
   ActionStandingsRule,
   ActionTiebreaker,
@@ -101,11 +101,30 @@ export class EditionActionRecalculationService {
     );
     for (const phase of tournament.phases) {
       const computed: Prisma.PhaseStandingUncheckedCreateInput[] = [];
-      if (phase.groups.length) {
+      // Liga é tabela única, mesmo que a fase ainda carregue grupos de quando
+      // era "Grupos": contar só jogo de grupo deixou o Vôlei de 2026 com 3 dos
+      // 23 jogos na tabela oficial.
+      if (phase.type === PhaseType.GROUP && phase.groups.length) {
+        // Jogo agendado direto na fase, sem grupo, conta no grupo que tem as
+        // duas equipes. Antes ele sumia da tabela sem aviso.
+        const ungrouped = await this.countedMatches(transaction, {
+          phaseId: phase.id,
+          groupId: null,
+        });
         for (const group of phase.groups) {
           const entryIds = group.entries.map((entry) => entry.entryId);
           if (!entryIds.length) continue;
-          const matches = await this.countedMatches(transaction, { groupId: group.id });
+          const members = new Set(entryIds);
+          const matches = [
+            ...(await this.countedMatches(transaction, { groupId: group.id })),
+            ...ungrouped.filter(
+              (match) =>
+                match.entryAId !== null &&
+                match.entryBId !== null &&
+                members.has(match.entryAId) &&
+                members.has(match.entryBId),
+            ),
+          ];
           computed.push(
             ...this.computeStandings(phase.id, entryIds, matches, regulation.standings),
           );
@@ -113,10 +132,7 @@ export class EditionActionRecalculationService {
       } else if (phase.type !== PhaseType.KNOCKOUT) {
         const entryIds = tournament.entries.map((entry) => entry.id);
         if (entryIds.length) {
-          const matches = await this.countedMatches(transaction, {
-            phaseId: phase.id,
-            groupId: null,
-          });
+          const matches = await this.countedMatches(transaction, { phaseId: phase.id });
           computed.push(
             ...this.computeStandings(phase.id, entryIds, matches, regulation.standings),
           );
@@ -127,6 +143,64 @@ export class EditionActionRecalculationService {
     }
 
     await this.progressKnockout(transaction, tournament);
+    await this.syncStatusWithMatches(transaction, tournament);
+  }
+
+  /**
+   * A situação da categoria acompanha os jogos.
+   *
+   * Em 2026 categorias com jogos encerrados seguiram "Publicado", e as que não
+   * tinham mata-mata nunca chegavam a "Encerrado": nada mudava a situação a
+   * não ser um toque do organizador, que quase nunca vinha. Agora o primeiro
+   * jogo disputado leva a "Em andamento", e o último resultado de uma categoria
+   * sem mata-mata a encerra (com mata-mata, quem encerra é a final).
+   */
+  private async syncStatusWithMatches(
+    transaction: Prisma.TransactionClient,
+    tournament: { id: string; phases: Array<{ type: PhaseType }> },
+  ): Promise<void> {
+    const current = await transaction.tournament.findUnique({
+      where: { id: tournament.id },
+      select: { status: true, editionDiscipline: { select: { editionId: true } } },
+    });
+    if (
+      !current ||
+      current.status === TournamentStatus.DRAFT ||
+      current.status === TournamentStatus.CANCELLED ||
+      current.status === TournamentStatus.FINISHED
+    ) {
+      return;
+    }
+    const matches = await transaction.match.findMany({
+      where: { phase: { tournamentId: tournament.id } },
+      select: { status: true },
+    });
+    if (!matches.length) return;
+    const started = matches.some((match) =>
+      ([MatchStatus.LIVE, MatchStatus.FINISHED, MatchStatus.WALKOVER] as MatchStatus[]).includes(match.status),
+    );
+    const pending = matches.some((match) =>
+      ([MatchStatus.SCHEDULED, MatchStatus.LIVE, MatchStatus.POSTPONED] as MatchStatus[]).includes(match.status),
+    );
+    const hasKnockout = tournament.phases.some((phase) => phase.type === PhaseType.KNOCKOUT);
+    const next =
+      !hasKnockout && !pending && started
+        ? TournamentStatus.FINISHED
+        : started && current.status === TournamentStatus.SCHEDULED
+          ? TournamentStatus.ONGOING
+          : null;
+    if (next && next !== current.status) {
+      await transaction.tournament.update({ where: { id: tournament.id }, data: { status: next } });
+    }
+    // A edição também: com bola rolando ela não está mais em "Planejamento".
+    // Só avança a partir de Planejamento — Finalizada e Arquivada são decisões
+    // da organização e não voltam por causa de um jogo.
+    if (started) {
+      await transaction.competitionEdition.updateMany({
+        where: { id: current.editionDiscipline.editionId, status: EditionStatus.PLANNING },
+        data: { status: EditionStatus.ONGOING },
+      });
+    }
   }
 
   private async countedMatches(
@@ -629,6 +703,7 @@ export class EditionActionRecalculationService {
     transaction: Prisma.TransactionClient,
     phase: {
       id: string;
+      type?: PhaseType;
       groups: Array<{
         id: string;
         name: string;
@@ -642,7 +717,8 @@ export class EditionActionRecalculationService {
       select: { entryId: true, rank: true, points: true, scoreFor: true, scoreAgainst: true },
     });
     const byEntry = new Map(standings.map((standing) => [standing.entryId, standing]));
-    if (!phase.groups.length) {
+    // Liga classifica pela tabela única, ainda que traga grupos antigos.
+    if (!phase.groups.length || phase.type === PhaseType.LEAGUE) {
       return standings
         .filter((standing) => (standing.rank ?? Number.MAX_SAFE_INTEGER) <= advancement.perGroup)
         .sort(

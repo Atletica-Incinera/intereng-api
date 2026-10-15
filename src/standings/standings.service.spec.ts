@@ -1,9 +1,11 @@
+import { exigirBancoDescartavel } from '../test-support/banco-descartavel';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { StandingsService } from './standings.service';
 import { MatchStatus, TournamentFormat, PhaseType, EditionStatus } from '@prisma/client';
 
 async function cleanDatabase(prisma: PrismaService) {
+  exigirBancoDescartavel();
   await prisma.phaseStanding.deleteMany({});
   await prisma.match.deleteMany({});
   await prisma.groupEntry.deleteMany({});

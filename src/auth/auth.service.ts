@@ -288,6 +288,19 @@ export class AuthService {
       };
     }
 
+    // Responsável da atlética: alcança uma equipe só. O escopo da sessão é o
+    // nome dela, que é como o front localiza a equipe e monta a navegação.
+    const teamManagerRole = staff.editionRoles.find(
+      (role) => role.role === EditionStaffRoleType.TEAM_MANAGER && role.team?.name,
+    );
+    if (teamManagerRole?.team) {
+      return {
+        user: this.mapUser(staff, 'TEAM_MANAGER', editionRoles, teamManagerRole.team.name),
+        isSuperAdmin: false,
+        activeEditionId: teamManagerRole.editionId,
+      };
+    }
+
     throw new UnauthorizedException('Usuário sem papel ativo na edição atual.');
   }
 

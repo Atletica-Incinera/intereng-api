@@ -297,8 +297,8 @@ describe('GlobalExceptionFilter', () => {
     expect(responseBody.error.message).toBe('Erro na operação do banco de dados.');
   });
 
-  it('should map standard Error to 500 INTERNAL_ERROR', () => {
-    const exception = new Error('Erro inesperado');
+  it('should map standard Error to 500 INTERNAL_ERROR without leaking its message', () => {
+    const exception = new Error('Invalid `prisma.x()` invocation in C:\src\handler.ts: violates check constraint');
 
     filter.catch(exception, mockArgumentsHost);
 
@@ -306,7 +306,8 @@ describe('GlobalExceptionFilter', () => {
     expect(responseBody).toEqual({
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Erro inesperado',
+        // A mensagem original (arquivo, SQL, restrição) fica só no log.
+        message: 'Ocorreu um erro interno no servidor.',
       },
     });
   });
