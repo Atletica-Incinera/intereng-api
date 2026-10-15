@@ -1048,6 +1048,16 @@ export class MatchActionHandler {
       'O tempo final do cronômetro',
       { min: 0, max: 86_400 },
     );
+    // O último período não passa por "avançar": sem isto, toda partida por
+    // tempo terminava com a parcial do 2º tempo faltando ("Parciais: 1-1" num
+    // 2 × 1). Por sets, o set final já foi gravado quando fechou.
+    if (regulation.completion.mode !== 'sets') {
+      await context.transaction.matchPeriodResult.upsert({
+        where: { matchId_period: { matchId: id, period } },
+        create: { matchId: id, period, scoreA: match.periodScoreA, scoreB: match.periodScoreB },
+        update: { scoreA: match.periodScoreA, scoreB: match.periodScoreB },
+      });
+    }
     await context.transaction.match.update({
       where: { id },
       data: {
