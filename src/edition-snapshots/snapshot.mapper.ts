@@ -947,10 +947,12 @@ export class SnapshotMapper {
         editionDisciplineId: true,
         role: true,
         revokedAt: true,
+        teamId: true,
         staff: { select: { name: true, email: true } },
         editionDiscipline: {
           select: { discipline: { select: { name: true } } },
         },
+        team: { select: { name: true } },
       },
     });
 
@@ -963,7 +965,7 @@ export class SnapshotMapper {
     // tempo (ex.: gestor de duas modalidades), só não duplica o histórico.
     const latestByAssignment = new Map<string, (typeof roles)[number]>();
     for (const assignment of roles) {
-      const key = `${assignment.staffId}:${assignment.role}:${assignment.editionDisciplineId ?? ''}`;
+      const key = `${assignment.staffId}:${assignment.role}:${assignment.editionDisciplineId ?? ''}:${assignment.teamId ?? ''}`;
       latestByAssignment.set(key, assignment);
     }
 
@@ -974,11 +976,18 @@ export class SnapshotMapper {
         name: assignment.staff.name,
         email: assignment.staff.email,
         initials: this.initials(assignment.staff.name),
-        role: assignment.role === 'EDITION_ADMIN' ? 'Admin da edição' : 'Gestor de modalidade',
+        role:
+          assignment.role === 'EDITION_ADMIN'
+            ? 'Admin da edição'
+            : assignment.role === 'TEAM_MANAGER'
+              ? 'Responsável da atlética'
+              : 'Gestor de modalidade',
         scope:
           assignment.role === 'EDITION_ADMIN'
             ? edition.name
-            : (assignment.editionDiscipline?.discipline.name ?? 'Modalidade não definida'),
+            : assignment.role === 'TEAM_MANAGER'
+              ? (assignment.team?.name ?? 'Equipe não definida')
+              : (assignment.editionDiscipline?.discipline.name ?? 'Modalidade não definida'),
         ...(assignment.revokedAt ? { revoked: true } : {}),
       };
     }

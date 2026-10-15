@@ -1,3 +1,4 @@
+import { exigirBancoDescartavel } from '../../test-support/banco-descartavel';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService, AuditContext, Auditable } from './index';
@@ -10,6 +11,7 @@ import { MatchStatus, TournamentFormat, PhaseType, Match } from '@prisma/client'
  * and adhere to DRY principles across test hooks.
  */
 async function cleanDatabase(prisma: PrismaService) {
+  exigirBancoDescartavel();
   await prisma.auditLog.deleteMany({});
   await prisma.match.deleteMany({});
   await prisma.phase.deleteMany({});

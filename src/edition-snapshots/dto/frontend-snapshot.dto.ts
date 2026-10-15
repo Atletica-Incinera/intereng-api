@@ -235,7 +235,7 @@ export interface StaffSnapshotDto {
   name: string;
   email: string;
   initials: string;
-  role: 'Admin da edição' | 'Gestor de modalidade';
+  role: 'Admin da edição' | 'Gestor de modalidade' | 'Responsável da atlética';
   scope: string;
   revoked?: boolean;
   superAdmin?: boolean;

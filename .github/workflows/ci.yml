@@ -95,6 +95,8 @@ jobs:
       # o que impede que uma troca de porta, de senha ou de nome de banco vire
       # aquele timeout mudo de novo.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/competitions?schema=public
+      # O banco do CI nasce vazio a cada execução: os testes de integração podem limpá-lo.
+      PERMITIR_LIMPEZA_DO_BANCO_EM_TESTE: "1"
       REDIS_URL: redis://localhost:6379
       # NODE_ENV fica deliberadamente de fora. `src/common/config/env.ts` só
       # recusa os padrões de desenvolvimento (JWT_SECRET, PII_PEPPER,

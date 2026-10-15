@@ -69,6 +69,7 @@ const MANAGER_ACTIONS = new Set<EditionActionType>([
   'match/undoEvent',
   'match/finish',
   'match/correctResult',
+  'match/recordResult',
   'category/create',
   'category/update',
   'category/generateMatches',
@@ -124,6 +125,8 @@ export class EditionActionsService {
       'match/finish': (context, payload, audit) => matchActions.finish(context, payload, audit),
       'match/correctResult': (context, payload, audit) =>
         matchActions.correctResult(context, payload, audit),
+      'match/recordResult': (context, payload, audit) =>
+        matchActions.recordResult(context, payload, audit),
       'category/create': (context, payload) => categoryActions.create(context, payload),
       'category/update': (context, payload) => categoryActions.update(context, payload),
       'category/delete': (context, payload) => categoryActions.delete(context, payload),
@@ -602,15 +605,32 @@ export class EditionActionsService {
     const email = actionEmail(payload, 'email', 'O e-mail do membro');
     const member = actionObject(payload.member, 'O membro do staff');
     const role = actionString(member, 'role', 'O papel do membro', { min: 1, max: 80 });
-    if (role !== 'Gestor de modalidade') {
+    if (role !== 'Gestor de modalidade' && role !== 'Responsável da atlética') {
       throw new ForbiddenException(
-        'O administrador da edição pode conceder apenas o papel de gestor de modalidade.',
+        'O administrador da edição pode conceder apenas os papéis de gestor de modalidade e de responsável da atlética.',
       );
     }
     const scopeName = actionString(member, 'scope', 'O escopo do membro', {
       min: 1,
       max: 160,
     });
+    // O escopo do responsável é uma equipe da edição; o do gestor, uma modalidade.
+    // Quem organiza o evento é quem convida as atléticas, então a concessão não
+    // pode depender do super admin.
+    const scopeExists =
+      role === 'Responsável da atlética'
+        ? transaction.editionTeam
+            .findFirst({
+              where: { editionId, team: { name: scopeName } },
+              select: { teamId: true },
+            })
+            .then((found) => Boolean(found))
+        : transaction.editionDiscipline
+            .findFirst({
+              where: { editionId, discipline: { name: scopeName } },
+              select: { id: true },
+            })
+            .then((found) => Boolean(found));
     const [target, discipline] = await Promise.all([
       transaction.staff.findUnique({
         where: { email },
@@ -628,13 +648,14 @@ export class EditionActionsService {
           },
         },
       }),
-      transaction.editionDiscipline.findFirst({
-        where: { editionId, discipline: { name: scopeName } },
-        select: { id: true },
-      }),
+      scopeExists,
     ]);
     if (!discipline) {
-      throw new NotFoundException('A modalidade do escopo não pertence a esta edição.');
+      throw new NotFoundException(
+        role === 'Responsável da atlética'
+          ? 'A equipe do escopo não pertence a esta edição.'
+          : 'A modalidade do escopo não pertence a esta edição.',
+      );
     }
     if (target?.isSuperAdmin || target?.editionRoles.length) {
       throw new ForbiddenException(

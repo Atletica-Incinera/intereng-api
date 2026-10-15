@@ -18,6 +18,7 @@ export const EDITION_ACTION_TYPES = [
   'match/undoEvent',
   'match/finish',
   'match/correctResult',
+  'match/recordResult',
   'category/create',
   'category/update',
   'category/delete',

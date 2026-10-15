@@ -1,3 +1,4 @@
+import { exigirBancoDescartavel } from '../../test-support/banco-descartavel';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -13,6 +14,7 @@ import { REQUIRE_ROLE_KEY } from '../decorators/require-role.decorator';
 import { SCOPE_PARAM_KEY } from '../decorators/scope-param.decorator';
 
 async function cleanDatabase(prisma: PrismaService) {
+  exigirBancoDescartavel();
   await prisma.editionStaffRole.deleteMany({});
   await prisma.match.deleteMany({});
   await prisma.phase.deleteMany({});

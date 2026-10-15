@@ -449,11 +449,15 @@ export class CategoryActionHandler {
         select: { id: true },
       });
       retainedPhaseIds.push(stored.id);
+      // Só fase "Grupos" tem grupos. Ao trocar para Liga ou Mata-mata o front
+      // escondia os grupos sem apagá-los, e a tabela passava a ignorar todo jogo
+      // lançado na fase.
+      const phaseGroups = phase.type === 'GROUP' ? phase.groups : [];
       const existingGroups = await tx.group.findMany({
         where: { phaseId: stored.id },
         select: { id: true, name: true },
       });
-      for (const groupName of phase.groups) {
+      for (const groupName of phaseGroups) {
         const existing = existingGroups.find((group) => group.name === groupName);
         const group = existing
           ? existing
@@ -464,7 +468,7 @@ export class CategoryActionHandler {
         groupsByName.set(group.name, group.id);
       }
       await tx.group.deleteMany({
-        where: { phaseId: stored.id, name: { notIn: phase.groups } },
+        where: { phaseId: stored.id, name: { notIn: phaseGroups } },
       });
     }
     await tx.phase.deleteMany({

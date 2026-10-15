@@ -167,9 +167,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code = 'INTERNAL_ERROR';
         message = 'Erro na operação do banco de dados.';
       }
-    } else if (exception instanceof Error) {
-      message = exception.message;
     }
+    // Qualquer outro erro (Prisma sem código conhecido, violação de CHECK,
+    // bug) segue com a mensagem genérica: a original traz caminho de arquivo,
+    // SQL e nome de restrição, e chegava inteira à tela de quem usa o app. O
+    // detalhe continua no log, que é onde quem investiga procura.
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(exception);
