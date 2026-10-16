@@ -238,11 +238,73 @@ export class CategoryActionHandler {
 
     const currentStructure = await this.structureSignature(transaction, tournamentId);
     const requestedStructure = this.requestedStructureSignature(setup);
-    if (currentStructure !== requestedStructure) {
+    if (
+      currentStructure !== requestedStructure &&
+      !this.onlyAddsParticipants(currentStructure, requestedStructure)
+    ) {
       throw new ConflictException(
         'Participantes, seeds, formato, fases, grupos e distribuições não podem ser alterados depois que a categoria possui partidas operadas.',
       );
     }
+  }
+
+  private onlyAddsParticipants(currentJson: string, requestedJson: string): boolean {
+    type Structure = {
+      format: string;
+      advancement: Record<string, unknown> | null;
+      participants: { name: string; seed: number | null }[];
+      phases: {
+        clientId: string;
+        name: string;
+        type: string;
+        qualifiers: number;
+        groups: { name: string; participants: string[] }[];
+      }[];
+    };
+    const current = JSON.parse(currentJson) as Structure;
+    const requested = JSON.parse(requestedJson) as Structure;
+    if (
+      current.format !== requested.format ||
+      JSON.stringify(current.advancement) !== JSON.stringify(requested.advancement) ||
+      current.phases.length !== requested.phases.length
+    )
+      return false;
+
+    const requestedParticipants = new Map<string, number | null>(
+      requested.participants.map((entry: { name: string; seed: number | null }) => [
+        entry.name,
+        entry.seed,
+      ]),
+    );
+    if (requestedParticipants.size <= current.participants.length) return false;
+    if (
+      current.participants.some(
+        (entry: { name: string; seed: number | null }) =>
+          requestedParticipants.get(entry.name) !== entry.seed,
+      )
+    )
+      return false;
+    const existingNames = new Set(current.participants.map((entry) => entry.name));
+
+    return current.phases.every((phase, index) => {
+      const next = requested.phases[index];
+      if (
+        phase.clientId !== next.clientId ||
+        phase.name !== next.name ||
+        phase.type !== next.type ||
+        phase.qualifiers !== next.qualifiers ||
+        phase.groups.length !== next.groups.length
+      )
+        return false;
+      return phase.groups.every((group, groupIndex) => {
+        const nextGroup = next.groups[groupIndex];
+        return (
+          group.name === nextGroup.name &&
+          JSON.stringify(group.participants) ===
+            JSON.stringify(nextGroup.participants.filter((name) => existingNames.has(name)))
+        );
+      });
+    });
   }
 
   private parseSetup(
